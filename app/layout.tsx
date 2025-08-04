@@ -8,7 +8,6 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Urban Hospitality Solutions",
   description: "Complete hospitality management platform for hotels, restaurants, and bars",
-    generator: 'v0.dev'
 }
 
 export default function RootLayout({
