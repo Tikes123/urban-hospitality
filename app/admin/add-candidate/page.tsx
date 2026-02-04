@@ -34,10 +34,45 @@ export default function AddCandidatePage() {
     resume: null,
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("Candidate added:", formData)
-    alert("Candidate added successfully!")
+    try {
+      const response = await fetch("/api/candidates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to add candidate")
+      }
+
+      alert("Candidate added successfully!")
+      // Reset form
+      setFormData({
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        position: "",
+        experience: "",
+        location: "",
+        availability: "",
+        salary: "",
+        skills: "",
+        education: "",
+        previousEmployer: "",
+        references: "",
+        notes: "",
+        status: "recently-applied",
+        source: "",
+        resume: null,
+      })
+    } catch (error: any) {
+      console.error("Error adding candidate:", error)
+      alert(error.message || "Failed to add candidate")
+    }
   }
 
   return (

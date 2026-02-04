@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,101 +24,82 @@ import {
   Filter,
   Search,
   Plus,
+  Loader2,
 } from "lucide-react"
+import { toast } from "sonner"
+
+interface Candidate {
+  id: number
+  name: string
+  position: string
+  status: string
+  email: string
+  phone: string
+  experience: string
+  location: string
+  appliedDate: string
+  salary: string | null
+  source: string | null
+  rating: number | null
+}
 
 export default function ViewApplicantsPage() {
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("all")
   const [positionFilter, setPositionFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCandidates, setSelectedCandidates] = useState<number[]>([])
   const [viewMode, setViewMode] = useState<"grid" | "table">("table")
 
-  const candidates = [
-    {
-      id: 1,
-      name: "Sarah Johnson",
-      position: "Hotel Manager",
-      status: "recently-applied",
-      email: "sarah.j@email.com",
-      phone: "+1 (555) 123-4567",
-      experience: "5 years",
-      location: "New York, NY",
-      appliedDate: "2024-01-15",
-      salary: "$65,000",
-      source: "Website",
-      rating: 4.5,
-    },
-    {
-      id: 2,
-      name: "Michael Chen",
-      position: "Head Chef",
-      status: "suggested",
-      email: "michael.c@email.com",
-      phone: "+1 (555) 234-5678",
-      experience: "8 years",
-      location: "Los Angeles, CA",
-      appliedDate: "2024-01-14",
-      salary: "$75,000",
-      source: "Referral",
-      rating: 4.8,
-    },
-    {
-      id: 3,
-      name: "Emily Rodriguez",
-      position: "Bartender",
-      status: "backed-out",
-      email: "emily.r@email.com",
-      phone: "+1 (555) 345-6789",
-      experience: "3 years",
-      location: "Miami, FL",
-      appliedDate: "2024-01-13",
-      salary: "$45,000",
-      source: "Job Board",
-      rating: 4.2,
-    },
-    {
-      id: 4,
-      name: "David Thompson",
-      position: "Front Desk Associate",
-      status: "recently-applied",
-      email: "david.t@email.com",
-      phone: "+1 (555) 456-7890",
-      experience: "2 years",
-      location: "Chicago, IL",
-      appliedDate: "2024-01-12",
-      salary: "$40,000",
-      source: "Social Media",
-      rating: 4.0,
-    },
-    {
-      id: 5,
-      name: "Lisa Wang",
-      position: "Server",
-      status: "interview-scheduled",
-      email: "lisa.w@email.com",
-      phone: "+1 (555) 567-8901",
-      experience: "4 years",
-      location: "San Francisco, CA",
-      appliedDate: "2024-01-11",
-      salary: "$35,000",
-      source: "Website",
-      rating: 4.3,
-    },
-    {
-      id: 6,
-      name: "James Wilson",
-      position: "Sous Chef",
-      status: "hired",
-      email: "james.w@email.com",
-      phone: "+1 (555) 678-9012",
-      experience: "6 years",
-      location: "Seattle, WA",
-      appliedDate: "2024-01-10",
-      salary: "$55,000",
-      source: "Referral",
-      rating: 4.7,
-    },
-  ]
+  useEffect(() => {
+    fetchCandidates()
+  }, [])
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchCandidates()
+    }, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchQuery, statusFilter, positionFilter])
+
+  const fetchCandidates = async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (statusFilter !== "all") params.append("status", statusFilter)
+      if (positionFilter !== "all") params.append("position", positionFilter)
+      if (searchQuery) params.append("search", searchQuery)
+
+      const response = await fetch(`/api/candidates?${params.toString()}`)
+      if (!response.ok) throw new Error("Failed to fetch candidates")
+      const data = await response.json()
+      setCandidates(data)
+    } catch (error) {
+      console.error("Error fetching candidates:", error)
+      toast.error("Failed to load candidates")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this candidate?")) return
+
+    try {
+      const response = await fetch(`/api/candidates/${id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) throw new Error("Failed to delete candidate")
+
+      toast.success("Candidate deleted successfully")
+      fetchCandidates()
+    } catch (error) {
+      console.error("Error deleting candidate:", error)
+      toast.error("Failed to delete candidate")
+    }
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -368,7 +349,15 @@ export default function ViewApplicantsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCandidates.map((candidate) => (
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+                      <span className="ml-2 text-gray-500">Loading candidates...</span>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredCandidates.map((candidate) => (
                   <TableRow key={candidate.id}>
                     <TableCell>
                       <Checkbox
@@ -440,7 +429,7 @@ export default function ViewApplicantsPage() {
                             <Download className="w-4 h-4 mr-2" />
                             Download Resume
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600">
+                          <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
                             <Trash2 className="w-4 h-4 mr-2" />
                             Delete
                           </DropdownMenuItem>
@@ -448,11 +437,12 @@ export default function ViewApplicantsPage() {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                  ))
+                )}
               </TableBody>
             </Table>
 
-            {filteredCandidates.length === 0 && (
+            {!loading && filteredCandidates.length === 0 && (
               <div className="text-center py-8 text-gray-500">No candidates found matching your criteria.</div>
             )}
           </CardContent>

@@ -1,0 +1,148 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// Client model - represents companies/organizations
+model Client {
+  id            Int       @id @default(autoincrement())
+  name          String
+  type          String    // hotel, restaurant, bar
+  contactPerson String
+  email         String    @unique
+  phone         String
+  address       String
+  outlets       Int       @default(0)
+  employees     Int       @default(0)
+  contractValue Float
+  contractStart DateTime
+  contractEnd   DateTime
+  status        String    // active, renewal-pending, trial, expired
+  rating        Float?
+  services      String    // JSON array stored as string
+  notes         String?   @db.Text
+  lastContact   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  outletList    Outlet[]
+
+  @@map("clients")
+}
+
+// Outlet model - represents individual locations/branches
+model Outlet {
+  id          Int       @id @default(autoincrement())
+  name        String
+  type        String    // hotel, restaurant, bar
+  address     String
+  phone       String
+  email       String
+  manager     String
+  employees   Int       @default(0)
+  rating      Float?
+  status      String    // active, maintenance, inactive
+  description String?   @db.Text
+  image       String?
+  clientId    Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@map("outlets")
+}
+
+// Designation model - represents job positions/roles
+model Designation {
+  id            Int       @id @default(autoincrement())
+  title         String
+  category      String    // hotel, restaurant, bar
+  department    String
+  level         String    // Entry, Mid, Senior
+  minSalary     Float
+  maxSalary     Float
+  openPositions Int       @default(0)
+  totalEmployees Int     @default(0)
+  description   String    @db.Text
+  requirements  String    @db.Text // JSON array stored as string
+  responsibilities String @db.Text // JSON array stored as string
+  skills        String    @db.Text // JSON array stored as string
+  status        String    // active, inactive
+  createdDate   DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  candidates    Candidate[]
+
+  @@map("designations")
+}
+
+// Candidate/Applicant model
+model Candidate {
+  id            Int       @id @default(autoincrement())
+  firstName     String
+  lastName      String
+  name          String    // Full name for display
+  email         String    @unique
+  phone         String
+  position      String
+  designationId Int?
+  experience    String
+  location      String
+  availability  String?
+  salary        String?
+  skills        String?   @db.Text
+  education     String?   @db.Text
+  previousEmployer String?
+  references    String?   @db.Text
+  notes         String?   @db.Text
+  status        String    // recently-applied, suggested, backed-out, interview-scheduled, hired
+  source        String?   // Website, Referral, Job Board, Social Media
+  rating        Float?
+  appliedDate   DateTime  @default(now())
+  resume        String?   // File path or URL
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  designation   Designation? @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  cvLinks       CVLink[]
+
+  @@map("candidates")
+}
+
+// CV Link model - for sharing candidate CVs
+model CVLink {
+  id            Int       @id @default(autoincrement())
+  candidateId   Int
+  candidateName String
+  position      String
+  linkId        String    @unique
+  shortUrl      String
+  fullUrl       String
+  createdDate   DateTime  @default(now())
+  expiryDate    DateTime
+  views         Int       @default(0)
+  downloads     Int       @default(0)
+  status        String    // active, expired, paused
+  lastViewed    DateTime?
+  sharedWith    String?   @db.Text // JSON array stored as string
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("cv_links")
+}

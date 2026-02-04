@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,85 +32,169 @@ import {
   UtensilsCrossed,
   Wine,
   Hotel,
+  Loader2,
 } from "lucide-react"
+import { toast } from "sonner"
+
+interface Outlet {
+  id: number
+  name: string
+  type: string
+  address: string
+  phone: string
+  email: string
+  manager: string
+  employees: number
+  rating: number | null
+  status: string
+  description: string | null
+  image: string | null
+  clientId: number | null
+}
 
 export default function OutletsPage() {
+  const [outlets, setOutlets] = useState<Outlet[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingOutlet, setEditingOutlet] = useState<Outlet | null>(null)
+  const [formData, setFormData] = useState({
+    name: "",
+    type: "",
+    address: "",
+    phone: "",
+    email: "",
+    manager: "",
+    employees: "",
+    rating: "",
+    status: "active",
+    description: "",
+    image: "",
+    clientId: "",
+  })
 
-  const outlets = [
-    {
-      id: 1,
-      name: "Grand Plaza Hotel",
-      type: "hotel",
-      address: "123 Main St, New York, NY 10001",
-      phone: "+1 (555) 123-4567",
-      email: "info@grandplaza.com",
-      manager: "Sarah Johnson",
-      employees: 45,
-      rating: 4.8,
+  useEffect(() => {
+    fetchOutlets()
+  }, [])
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchOutlets()
+    }, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchQuery, typeFilter])
+
+  const fetchOutlets = async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (typeFilter !== "all") params.append("type", typeFilter)
+      if (searchQuery) params.append("search", searchQuery)
+
+      const response = await fetch(`/api/outlets?${params.toString()}`)
+      if (!response.ok) throw new Error("Failed to fetch outlets")
+      const data = await response.json()
+      setOutlets(data)
+    } catch (error) {
+      console.error("Error fetching outlets:", error)
+      toast.error("Failed to load outlets")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const outletData = {
+        ...formData,
+        employees: parseInt(formData.employees) || 0,
+        rating: formData.rating ? parseFloat(formData.rating) : null,
+        clientId: formData.clientId ? parseInt(formData.clientId) : null,
+      }
+
+      const url = editingOutlet ? `/api/outlets/${editingOutlet.id}` : "/api/outlets"
+      const method = editingOutlet ? "PUT" : "POST"
+
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(outletData),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to save outlet")
+      }
+
+      toast.success(editingOutlet ? "Outlet updated successfully" : "Outlet created successfully")
+      setIsAddDialogOpen(false)
+      setIsEditDialogOpen(false)
+      setEditingOutlet(null)
+      resetForm()
+      fetchOutlets()
+    } catch (error: any) {
+      console.error("Error saving outlet:", error)
+      toast.error(error.message || "Failed to save outlet")
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this outlet?")) return
+
+    try {
+      const response = await fetch(`/api/outlets/${id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) throw new Error("Failed to delete outlet")
+
+      toast.success("Outlet deleted successfully")
+      fetchOutlets()
+    } catch (error) {
+      console.error("Error deleting outlet:", error)
+      toast.error("Failed to delete outlet")
+    }
+  }
+
+  const handleEdit = (outlet: Outlet) => {
+    setEditingOutlet(outlet)
+    setFormData({
+      name: outlet.name,
+      type: outlet.type,
+      address: outlet.address,
+      phone: outlet.phone,
+      email: outlet.email,
+      manager: outlet.manager,
+      employees: outlet.employees.toString(),
+      rating: outlet.rating?.toString() || "",
+      status: outlet.status,
+      description: outlet.description || "",
+      image: outlet.image || "",
+      clientId: outlet.clientId?.toString() || "",
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      type: "",
+      address: "",
+      phone: "",
+      email: "",
+      manager: "",
+      employees: "",
+      rating: "",
       status: "active",
-      description: "Luxury hotel in the heart of Manhattan",
-      image: "/placeholder.svg?height=200&width=300",
-    },
-    {
-      id: 2,
-      name: "Bella Vista Restaurant",
-      type: "restaurant",
-      address: "456 Oak Ave, Los Angeles, CA 90210",
-      phone: "+1 (555) 234-5678",
-      email: "contact@bellavista.com",
-      manager: "Michael Chen",
-      employees: 28,
-      rating: 4.6,
-      status: "active",
-      description: "Fine dining Italian restaurant with ocean views",
-      image: "/placeholder.svg?height=200&width=300",
-    },
-    {
-      id: 3,
-      name: "The Rooftop Lounge",
-      type: "bar",
-      address: "789 Pine St, Miami, FL 33101",
-      phone: "+1 (555) 345-6789",
-      email: "hello@rooftopmiami.com",
-      manager: "Emily Rodriguez",
-      employees: 15,
-      rating: 4.7,
-      status: "active",
-      description: "Trendy rooftop bar with craft cocktails",
-      image: "/placeholder.svg?height=200&width=300",
-    },
-    {
-      id: 4,
-      name: "Seaside Resort",
-      type: "hotel",
-      address: "321 Beach Blvd, San Diego, CA 92101",
-      phone: "+1 (555) 456-7890",
-      email: "reservations@seasideresort.com",
-      manager: "David Thompson",
-      employees: 67,
-      rating: 4.5,
-      status: "maintenance",
-      description: "Beachfront resort with spa and conference facilities",
-      image: "/placeholder.svg?height=200&width=300",
-    },
-    {
-      id: 5,
-      name: "Urban Bistro",
-      type: "restaurant",
-      address: "654 Market St, San Francisco, CA 94102",
-      phone: "+1 (555) 567-8901",
-      email: "info@urbanbistro.com",
-      manager: "Lisa Wang",
-      employees: 22,
-      rating: 4.4,
-      status: "active",
-      description: "Modern American cuisine in downtown SF",
-      image: "/placeholder.svg?height=200&width=300",
-    },
-  ]
+      description: "",
+      image: "",
+      clientId: "",
+    })
+    setEditingOutlet(null)
+  }
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -144,8 +228,7 @@ export default function OutletsPage() {
       outlet.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       outlet.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
       outlet.manager.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesType = typeFilter === "all" || outlet.type === typeFilter
-    return matchesSearch && matchesType
+    return matchesSearch
   })
 
   return (
@@ -204,67 +287,312 @@ export default function OutletsPage() {
       <main className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Outlets Management</h1>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+            setIsAddDialogOpen(open)
+            if (!open) resetForm()
+          }}>
             <DialogTrigger asChild>
               <Button className="bg-green-600 hover:bg-green-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Add New Outlet
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Outlet</DialogTitle>
                 <DialogDescription>Enter the details for the new outlet</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="outlet-name">Outlet Name</Label>
-                    <Input id="outlet-name" placeholder="Enter outlet name" />
+              <form onSubmit={handleSubmit}>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="outlet-name">Outlet Name</Label>
+                      <Input
+                        id="outlet-name"
+                        placeholder="Enter outlet name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="outlet-type">Type</Label>
+                      <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hotel">Hotel</SelectItem>
+                          <SelectItem value="restaurant">Restaurant</SelectItem>
+                          <SelectItem value="bar">Bar</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div>
-                    <Label htmlFor="outlet-type">Type</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hotel">Hotel</SelectItem>
-                        <SelectItem value="restaurant">Restaurant</SelectItem>
-                        <SelectItem value="bar">Bar</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="outlet-address">Address</Label>
+                    <Input
+                      id="outlet-address"
+                      placeholder="Enter full address"
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      required
+                    />
                   </div>
-                </div>
-                <div>
-                  <Label htmlFor="outlet-address">Address</Label>
-                  <Input id="outlet-address" placeholder="Enter full address" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="outlet-phone">Phone</Label>
+                      <Input
+                        id="outlet-phone"
+                        placeholder="Phone number"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="outlet-email">Email</Label>
+                      <Input
+                        id="outlet-email"
+                        type="email"
+                        placeholder="Email address"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="outlet-manager">Manager</Label>
+                      <Input
+                        id="outlet-manager"
+                        placeholder="Manager name"
+                        value={formData.manager}
+                        onChange={(e) => setFormData({ ...formData, manager: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="outlet-employees">Employees</Label>
+                      <Input
+                        id="outlet-employees"
+                        type="number"
+                        placeholder="Number of employees"
+                        value={formData.employees}
+                        onChange={(e) => setFormData({ ...formData, employees: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="outlet-rating">Rating</Label>
+                      <Input
+                        id="outlet-rating"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="5"
+                        placeholder="Rating (0-5)"
+                        value={formData.rating}
+                        onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="outlet-status">Status</Label>
+                      <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="closed">Closed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                   <div>
-                    <Label htmlFor="outlet-phone">Phone</Label>
-                    <Input id="outlet-phone" placeholder="Phone number" />
+                    <Label htmlFor="outlet-description">Description</Label>
+                    <Textarea
+                      id="outlet-description"
+                      placeholder="Brief description of the outlet"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    />
                   </div>
                   <div>
-                    <Label htmlFor="outlet-email">Email</Label>
-                    <Input id="outlet-email" type="email" placeholder="Email address" />
+                    <Label htmlFor="outlet-image">Image URL</Label>
+                    <Input
+                      id="outlet-image"
+                      placeholder="Image URL (optional)"
+                      value={formData.image}
+                      onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    <Button type="button" variant="outline" onClick={() => {
+                      setIsAddDialogOpen(false)
+                      resetForm()
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" className="bg-green-600 hover:bg-green-700">Add Outlet</Button>
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="outlet-manager">Manager</Label>
-                  <Input id="outlet-manager" placeholder="Manager name" />
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Dialog */}
+          <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+            setIsEditDialogOpen(open)
+            if (!open) resetForm()
+          }}>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Edit Outlet</DialogTitle>
+                <DialogDescription>Update outlet information</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit}>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-outlet-name">Outlet Name</Label>
+                      <Input
+                        id="edit-outlet-name"
+                        placeholder="Enter outlet name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-outlet-type">Type</Label>
+                      <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hotel">Hotel</SelectItem>
+                          <SelectItem value="restaurant">Restaurant</SelectItem>
+                          <SelectItem value="bar">Bar</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-outlet-address">Address</Label>
+                    <Input
+                      id="edit-outlet-address"
+                      placeholder="Enter full address"
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-outlet-phone">Phone</Label>
+                      <Input
+                        id="edit-outlet-phone"
+                        placeholder="Phone number"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-outlet-email">Email</Label>
+                      <Input
+                        id="edit-outlet-email"
+                        type="email"
+                        placeholder="Email address"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-outlet-manager">Manager</Label>
+                      <Input
+                        id="edit-outlet-manager"
+                        placeholder="Manager name"
+                        value={formData.manager}
+                        onChange={(e) => setFormData({ ...formData, manager: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-outlet-employees">Employees</Label>
+                      <Input
+                        id="edit-outlet-employees"
+                        type="number"
+                        placeholder="Number of employees"
+                        value={formData.employees}
+                        onChange={(e) => setFormData({ ...formData, employees: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-outlet-rating">Rating</Label>
+                      <Input
+                        id="edit-outlet-rating"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="5"
+                        placeholder="Rating (0-5)"
+                        value={formData.rating}
+                        onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-outlet-status">Status</Label>
+                      <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="closed">Closed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-outlet-description">Description</Label>
+                    <Textarea
+                      id="edit-outlet-description"
+                      placeholder="Brief description of the outlet"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-outlet-image">Image URL</Label>
+                    <Input
+                      id="edit-outlet-image"
+                      placeholder="Image URL (optional)"
+                      value={formData.image}
+                      onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    <Button type="button" variant="outline" onClick={() => {
+                      setIsEditDialogOpen(false)
+                      resetForm()
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" className="bg-green-600 hover:bg-green-700">Update Outlet</Button>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="outlet-description">Description</Label>
-                  <Textarea id="outlet-description" placeholder="Brief description of the outlet" />
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button className="bg-green-600 hover:bg-green-700">Add Outlet</Button>
-                </div>
-              </div>
+              </form>
             </DialogContent>
           </Dialog>
         </div>
@@ -309,76 +637,85 @@ export default function OutletsPage() {
         </Card>
 
         {/* Outlets Grid */}
-        <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredOutlets.map((outlet) => (
-            <Card key={outlet.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-              <div className="aspect-video bg-gray-200 relative">
-                <img
-                  src={outlet.image || "/placeholder.svg"}
-                  alt={outlet.name}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute top-4 left-4">{getStatusBadge(outlet.status)}</div>
-                <div className="absolute top-4 right-4 flex items-center space-x-1 bg-white/90 rounded px-2 py-1">
-                  <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  <span className="text-sm font-medium">{outlet.rating}</span>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            <span className="ml-2 text-gray-500">Loading outlets...</span>
+          </div>
+        ) : (
+          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {filteredOutlets.map((outlet) => (
+              <Card key={outlet.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                <div className="aspect-video bg-gray-200 relative">
+                  <img
+                    src={outlet.image || "/placeholder.svg"}
+                    alt={outlet.name}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-4 left-4">{getStatusBadge(outlet.status)}</div>
+                  {outlet.rating && (
+                    <div className="absolute top-4 right-4 flex items-center space-x-1 bg-white/90 rounded px-2 py-1">
+                      <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                      <span className="text-sm font-medium">{outlet.rating}</span>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    {getTypeIcon(outlet.type)}
-                    <CardTitle className="text-lg">{outlet.name}</CardTitle>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      {getTypeIcon(outlet.type)}
+                      <CardTitle className="text-lg">{outlet.name}</CardTitle>
+                    </div>
+                    <div className="flex space-x-1">
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(outlet)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-red-600" onClick={() => handleDelete(outlet.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex space-x-1">
-                    <Button variant="ghost" size="sm">
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="text-red-600">
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-                <CardDescription>{outlet.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center text-sm text-gray-600">
-                    <MapPin className="w-4 h-4 mr-2" />
-                    {outlet.address}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Phone className="w-4 h-4 mr-2" />
-                    {outlet.phone}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Mail className="w-4 h-4 mr-2" />
-                    {outlet.email}
-                  </div>
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <div className="flex items-center text-sm">
-                      <Avatar className="w-6 h-6 mr-2">
-                        <AvatarFallback className="text-xs">
-                          {outlet.manager
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-gray-600">Manager: {outlet.manager}</span>
+                  {outlet.description && <CardDescription>{outlet.description}</CardDescription>}
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <MapPin className="w-4 h-4 mr-2" />
+                      {outlet.address}
                     </div>
                     <div className="flex items-center text-sm text-gray-600">
-                      <Users className="w-4 h-4 mr-1" />
-                      {outlet.employees}
+                      <Phone className="w-4 h-4 mr-2" />
+                      {outlet.phone}
+                    </div>
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Mail className="w-4 h-4 mr-2" />
+                      {outlet.email}
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <div className="flex items-center text-sm">
+                        <Avatar className="w-6 h-6 mr-2">
+                          <AvatarFallback className="text-xs">
+                            {outlet.manager
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-gray-600">Manager: {outlet.manager}</span>
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Users className="w-4 h-4 mr-1" />
+                        {outlet.employees}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-        {filteredOutlets.length === 0 && (
+        {!loading && filteredOutlets.length === 0 && (
           <Card>
             <CardContent className="text-center py-8">
               <Building className="w-12 h-12 text-gray-400 mx-auto mb-4" />

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,130 +38,192 @@ import {
   Hotel,
   UtensilsCrossed,
   Wine,
+  Loader2,
 } from "lucide-react"
+import { toast } from "sonner"
+
+interface Client {
+  id: number
+  name: string
+  type: string
+  contactPerson: string
+  email: string
+  phone: string
+  address: string
+  outlets: number
+  employees: number
+  contractValue: number
+  contractStart: string
+  contractEnd: string
+  status: string
+  rating: number | null
+  services: string[]
+  notes: string | null
+  lastContact: string | null
+}
 
 export default function ClientPage() {
+  const [clients, setClients] = useState<Client[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingClient, setEditingClient] = useState<Client | null>(null)
+  const [formData, setFormData] = useState({
+    name: "",
+    type: "",
+    contactPerson: "",
+    email: "",
+    phone: "",
+    address: "",
+    outlets: "",
+    employees: "",
+    contractValue: "",
+    contractStart: "",
+    contractEnd: "",
+    status: "active",
+    rating: "",
+    services: "",
+    notes: "",
+    lastContact: "",
+  })
 
-  const clients = [
-    {
-      id: 1,
-      name: "Grand Plaza Hotel Group",
-      type: "hotel",
-      contactPerson: "Sarah Johnson",
-      email: "sarah@grandplaza.com",
-      phone: "+1 (555) 123-4567",
-      address: "123 Main St, New York, NY 10001",
-      outlets: 3,
-      employees: 150,
-      contractValue: 250000,
-      contractStart: "2024-01-01",
-      contractEnd: "2024-12-31",
+  // Fetch clients from API
+  useEffect(() => {
+    fetchClients()
+  }, [])
+
+  const fetchClients = async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (statusFilter !== "all") params.append("status", statusFilter)
+      if (typeFilter !== "all") params.append("type", typeFilter)
+      if (searchQuery) params.append("search", searchQuery)
+
+      const response = await fetch(`/api/clients?${params.toString()}`)
+      if (!response.ok) throw new Error("Failed to fetch clients")
+      const data = await response.json()
+      setClients(data)
+    } catch (error) {
+      console.error("Error fetching clients:", error)
+      toast.error("Failed to load clients")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Refetch when filters change
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchClients()
+    }, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchQuery, statusFilter, typeFilter])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const clientData = {
+        ...formData,
+        outlets: parseInt(formData.outlets) || 0,
+        employees: parseInt(formData.employees) || 0,
+        contractValue: parseFloat(formData.contractValue) || 0,
+        services: formData.services.split(",").map((s) => s.trim()).filter(Boolean),
+        rating: formData.rating ? parseFloat(formData.rating) : null,
+        lastContact: formData.lastContact || null,
+      }
+
+      const url = editingClient ? `/api/clients/${editingClient.id}` : "/api/clients"
+      const method = editingClient ? "PUT" : "POST"
+
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clientData),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to save client")
+      }
+
+      toast.success(editingClient ? "Client updated successfully" : "Client created successfully")
+      setIsAddDialogOpen(false)
+      setIsEditDialogOpen(false)
+      setEditingClient(null)
+      resetForm()
+      fetchClients()
+    } catch (error: any) {
+      console.error("Error saving client:", error)
+      toast.error(error.message || "Failed to save client")
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this client?")) return
+
+    try {
+      const response = await fetch(`/api/clients/${id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) throw new Error("Failed to delete client")
+
+      toast.success("Client deleted successfully")
+      fetchClients()
+    } catch (error) {
+      console.error("Error deleting client:", error)
+      toast.error("Failed to delete client")
+    }
+  }
+
+  const handleEdit = (client: Client) => {
+    setEditingClient(client)
+    setFormData({
+      name: client.name,
+      type: client.type,
+      contactPerson: client.contactPerson,
+      email: client.email,
+      phone: client.phone,
+      address: client.address,
+      outlets: client.outlets.toString(),
+      employees: client.employees.toString(),
+      contractValue: client.contractValue.toString(),
+      contractStart: client.contractStart,
+      contractEnd: client.contractEnd,
+      status: client.status,
+      rating: client.rating?.toString() || "",
+      services: client.services.join(", "),
+      notes: client.notes || "",
+      lastContact: client.lastContact || "",
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      type: "",
+      contactPerson: "",
+      email: "",
+      phone: "",
+      address: "",
+      outlets: "",
+      employees: "",
+      contractValue: "",
+      contractStart: "",
+      contractEnd: "",
       status: "active",
-      rating: 4.8,
-      services: ["Staff Management", "Training", "Recruitment"],
-      notes: "Premium client with multiple locations",
-      lastContact: "2024-01-20",
-    },
-    {
-      id: 2,
-      name: "Bella Vista Restaurant Chain",
-      type: "restaurant",
-      contactPerson: "Michael Chen",
-      email: "michael@bellavista.com",
-      phone: "+1 (555) 234-5678",
-      address: "456 Oak Ave, Los Angeles, CA 90210",
-      outlets: 5,
-      employees: 200,
-      contractValue: 180000,
-      contractStart: "2024-02-01",
-      contractEnd: "2025-01-31",
-      status: "active",
-      rating: 4.6,
-      services: ["Kitchen Management", "Staff Training", "Menu Consulting"],
-      notes: "Growing chain with expansion plans",
-      lastContact: "2024-01-18",
-    },
-    {
-      id: 3,
-      name: "Urban Nightlife Group",
-      type: "bar",
-      contactPerson: "Emily Rodriguez",
-      email: "emily@urbannightlife.com",
-      phone: "+1 (555) 345-6789",
-      address: "789 Pine St, Miami, FL 33101",
-      outlets: 4,
-      employees: 80,
-      contractValue: 120000,
-      contractStart: "2024-01-15",
-      contractEnd: "2024-07-15",
-      status: "active",
-      rating: 4.7,
-      services: ["Bar Management", "Mixology Training", "Event Planning"],
-      notes: "Trendy bar group focusing on craft cocktails",
-      lastContact: "2024-01-19",
-    },
-    {
-      id: 4,
-      name: "Seaside Resort & Spa",
-      type: "hotel",
-      contactPerson: "David Thompson",
-      email: "david@seasideresort.com",
-      phone: "+1 (555) 456-7890",
-      address: "321 Beach Blvd, San Diego, CA 92101",
-      outlets: 1,
-      employees: 120,
-      contractValue: 200000,
-      contractStart: "2023-06-01",
-      contractEnd: "2024-05-31",
-      status: "renewal-pending",
-      rating: 4.5,
-      services: ["Full Service Management", "Spa Operations", "Event Coordination"],
-      notes: "Contract up for renewal, negotiations in progress",
-      lastContact: "2024-01-15",
-    },
-    {
-      id: 5,
-      name: "Downtown Bistro",
-      type: "restaurant",
-      contactPerson: "Lisa Wang",
-      email: "lisa@downtownbistro.com",
-      phone: "+1 (555) 567-8901",
-      address: "654 Market St, San Francisco, CA 94102",
-      outlets: 1,
-      employees: 35,
-      contractValue: 60000,
-      contractStart: "2024-03-01",
-      contractEnd: "2024-08-31",
-      status: "trial",
-      rating: 4.2,
-      services: ["Staff Training", "Operations Consulting"],
-      notes: "New client on trial period",
-      lastContact: "2024-01-21",
-    },
-    {
-      id: 6,
-      name: "Metropolitan Hotels",
-      type: "hotel",
-      contactPerson: "Robert Kim",
-      email: "robert@metrohotels.com",
-      phone: "+1 (555) 678-9012",
-      address: "987 Business Ave, Chicago, IL 60601",
-      outlets: 2,
-      employees: 90,
-      contractValue: 150000,
-      contractStart: "2023-12-01",
-      contractEnd: "2023-11-30",
-      status: "expired",
-      rating: 4.1,
-      services: ["Management Consulting", "Staff Development"],
-      notes: "Contract expired, follow-up needed",
-      lastContact: "2024-01-10",
-    },
-  ]
+      rating: "",
+      services: "",
+      notes: "",
+      lastContact: "",
+    })
+    setEditingClient(null)
+  }
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -199,15 +261,16 @@ export default function ClientPage() {
       client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       client.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
       client.email.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesStatus = statusFilter === "all" || client.status === statusFilter
-    const matchesType = typeFilter === "all" || client.type === typeFilter
-    return matchesSearch && matchesStatus && matchesType
+    return matchesSearch
   })
 
   const totalClients = clients.length
   const activeClients = clients.filter((c) => c.status === "active").length
   const totalRevenue = clients.reduce((sum, c) => sum + c.contractValue, 0)
-  const avgRating = (clients.reduce((sum, c) => sum + c.rating, 0) / clients.length).toFixed(1)
+  const avgRating =
+    clients.length > 0
+      ? (clients.reduce((sum, c) => sum + (c.rating || 0), 0) / clients.length).toFixed(1)
+      : "0.0"
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -265,7 +328,10 @@ export default function ClientPage() {
       <main className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Client Management</h1>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+            setIsAddDialogOpen(open)
+            if (!open) resetForm()
+          }}>
             <DialogTrigger asChild>
               <Button className="bg-green-600 hover:bg-green-700">
                 <Plus className="w-4 h-4 mr-2" />
@@ -277,75 +343,425 @@ export default function ClientPage() {
                 <DialogTitle>Add New Client</DialogTitle>
                 <DialogDescription>Create a new client profile</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="client-name">Client Name</Label>
-                    <Input id="client-name" placeholder="Enter client name" />
+              <form onSubmit={handleSubmit}>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="client-name">Client Name</Label>
+                      <Input
+                        id="client-name"
+                        placeholder="Enter client name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="client-type">Business Type</Label>
+                      <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hotel">Hotel</SelectItem>
+                          <SelectItem value="restaurant">Restaurant</SelectItem>
+                          <SelectItem value="bar">Bar</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="contact-person">Contact Person</Label>
+                      <Input
+                        id="contact-person"
+                        placeholder="Primary contact name"
+                        value={formData.contactPerson}
+                        onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="contact-email">Email</Label>
+                      <Input
+                        id="contact-email"
+                        type="email"
+                        placeholder="Contact email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="contact-phone">Phone</Label>
+                      <Input
+                        id="contact-phone"
+                        placeholder="Phone number"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="outlets-count">Number of Outlets</Label>
+                      <Input
+                        id="outlets-count"
+                        type="number"
+                        placeholder="Number of outlets"
+                        value={formData.outlets}
+                        onChange={(e) => setFormData({ ...formData, outlets: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="employees-count">Number of Employees</Label>
+                      <Input
+                        id="employees-count"
+                        type="number"
+                        placeholder="Number of employees"
+                        value={formData.employees}
+                        onChange={(e) => setFormData({ ...formData, employees: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="client-address">Address</Label>
+                      <Input
+                        id="client-address"
+                        placeholder="Business address"
+                        value={formData.address}
+                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="contract-value">Contract Value</Label>
+                      <Input
+                        id="contract-value"
+                        type="number"
+                        placeholder="Annual contract value"
+                        value={formData.contractValue}
+                        onChange={(e) => setFormData({ ...formData, contractValue: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="contract-start">Contract Start Date</Label>
+                      <Input
+                        id="contract-start"
+                        type="date"
+                        value={formData.contractStart}
+                        onChange={(e) => setFormData({ ...formData, contractStart: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="contract-end">Contract End Date</Label>
+                      <Input
+                        id="contract-end"
+                        type="date"
+                        value={formData.contractEnd}
+                        onChange={(e) => setFormData({ ...formData, contractEnd: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="client-status">Status</Label>
+                      <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="trial">Trial</SelectItem>
+                          <SelectItem value="renewal-pending">Renewal Pending</SelectItem>
+                          <SelectItem value="expired">Expired</SelectItem>
+                          <SelectItem value="paused">Paused</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="client-rating">Rating</Label>
+                      <Input
+                        id="client-rating"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="5"
+                        placeholder="Rating (0-5)"
+                        value={formData.rating}
+                        onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+                      />
+                    </div>
                   </div>
                   <div>
-                    <Label htmlFor="client-type">Business Type</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hotel">Hotel</SelectItem>
-                        <SelectItem value="restaurant">Restaurant</SelectItem>
-                        <SelectItem value="bar">Bar</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="contact-person">Contact Person</Label>
-                    <Input id="contact-person" placeholder="Primary contact name" />
+                    <Label htmlFor="services">Services (comma-separated)</Label>
+                    <Textarea
+                      id="services"
+                      placeholder="Staff Management, Training, Recruitment"
+                      rows={2}
+                      value={formData.services}
+                      onChange={(e) => setFormData({ ...formData, services: e.target.value })}
+                    />
                   </div>
                   <div>
-                    <Label htmlFor="contact-email">Email</Label>
-                    <Input id="contact-email" type="email" placeholder="Contact email" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="contact-phone">Phone</Label>
-                    <Input id="contact-phone" placeholder="Phone number" />
-                  </div>
-                  <div>
-                    <Label htmlFor="outlets-count">Number of Outlets</Label>
-                    <Input id="outlets-count" type="number" placeholder="Number of outlets" />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="client-address">Address</Label>
-                  <Input id="client-address" placeholder="Business address" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="contract-value">Contract Value</Label>
-                    <Input id="contract-value" type="number" placeholder="Annual contract value" />
+                    <Label htmlFor="client-notes">Notes</Label>
+                    <Textarea
+                      id="client-notes"
+                      placeholder="Additional notes about the client"
+                      rows={3}
+                      value={formData.notes}
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    />
                   </div>
                   <div>
-                    <Label htmlFor="contract-start">Contract Start Date</Label>
-                    <Input id="contract-start" type="date" />
+                    <Label htmlFor="last-contact">Last Contact Date</Label>
+                    <Input
+                      id="last-contact"
+                      type="date"
+                      value={formData.lastContact}
+                      onChange={(e) => setFormData({ ...formData, lastContact: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsAddDialogOpen(false)
+                        resetForm()
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                      Add Client
+                    </Button>
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="services">Services</Label>
-                  <Textarea id="services" placeholder="List of services provided" rows={2} />
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Dialog */}
+          <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+            setIsEditDialogOpen(open)
+            if (!open) resetForm()
+          }}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Edit Client</DialogTitle>
+                <DialogDescription>Update client information</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit}>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-client-name">Client Name</Label>
+                      <Input
+                        id="edit-client-name"
+                        placeholder="Enter client name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-client-type">Business Type</Label>
+                      <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hotel">Hotel</SelectItem>
+                          <SelectItem value="restaurant">Restaurant</SelectItem>
+                          <SelectItem value="bar">Bar</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-contact-person">Contact Person</Label>
+                      <Input
+                        id="edit-contact-person"
+                        placeholder="Primary contact name"
+                        value={formData.contactPerson}
+                        onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-contact-email">Email</Label>
+                      <Input
+                        id="edit-contact-email"
+                        type="email"
+                        placeholder="Contact email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-contact-phone">Phone</Label>
+                      <Input
+                        id="edit-contact-phone"
+                        placeholder="Phone number"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-outlets-count">Number of Outlets</Label>
+                      <Input
+                        id="edit-outlets-count"
+                        type="number"
+                        placeholder="Number of outlets"
+                        value={formData.outlets}
+                        onChange={(e) => setFormData({ ...formData, outlets: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-employees-count">Number of Employees</Label>
+                      <Input
+                        id="edit-employees-count"
+                        type="number"
+                        placeholder="Number of employees"
+                        value={formData.employees}
+                        onChange={(e) => setFormData({ ...formData, employees: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-client-address">Address</Label>
+                      <Input
+                        id="edit-client-address"
+                        placeholder="Business address"
+                        value={formData.address}
+                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="edit-contract-value">Contract Value</Label>
+                      <Input
+                        id="edit-contract-value"
+                        type="number"
+                        placeholder="Annual contract value"
+                        value={formData.contractValue}
+                        onChange={(e) => setFormData({ ...formData, contractValue: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-contract-start">Contract Start Date</Label>
+                      <Input
+                        id="edit-contract-start"
+                        type="date"
+                        value={formData.contractStart}
+                        onChange={(e) => setFormData({ ...formData, contractStart: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-contract-end">Contract End Date</Label>
+                      <Input
+                        id="edit-contract-end"
+                        type="date"
+                        value={formData.contractEnd}
+                        onChange={(e) => setFormData({ ...formData, contractEnd: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="edit-client-status">Status</Label>
+                      <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="trial">Trial</SelectItem>
+                          <SelectItem value="renewal-pending">Renewal Pending</SelectItem>
+                          <SelectItem value="expired">Expired</SelectItem>
+                          <SelectItem value="paused">Paused</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-client-rating">Rating</Label>
+                      <Input
+                        id="edit-client-rating"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="5"
+                        placeholder="Rating (0-5)"
+                        value={formData.rating}
+                        onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-services">Services (comma-separated)</Label>
+                    <Textarea
+                      id="edit-services"
+                      placeholder="Staff Management, Training, Recruitment"
+                      rows={2}
+                      value={formData.services}
+                      onChange={(e) => setFormData({ ...formData, services: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-client-notes">Notes</Label>
+                    <Textarea
+                      id="edit-client-notes"
+                      placeholder="Additional notes about the client"
+                      rows={3}
+                      value={formData.notes}
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-last-contact">Last Contact Date</Label>
+                    <Input
+                      id="edit-last-contact"
+                      type="date"
+                      value={formData.lastContact}
+                      onChange={(e) => setFormData({ ...formData, lastContact: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsEditDialogOpen(false)
+                        resetForm()
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                      Update Client
+                    </Button>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="client-notes">Notes</Label>
-                  <Textarea id="client-notes" placeholder="Additional notes about the client" rows={3} />
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button className="bg-green-600 hover:bg-green-700">Add Client</Button>
-                </div>
-              </div>
+              </form>
             </DialogContent>
           </Dialog>
         </div>
@@ -460,130 +876,141 @@ export default function ClientPage() {
             <CardDescription>Manage your client relationships and contracts</CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Outlets</TableHead>
-                  <TableHead>Contract Value</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Rating</TableHead>
-                  <TableHead>Last Contact</TableHead>
-                  <TableHead className="w-12">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredClients.map((client) => (
-                  <TableRow key={client.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <Avatar className="w-10 h-10">
-                          <AvatarImage src={`/placeholder-company.jpg`} />
-                          <AvatarFallback>
-                            {client.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium">{client.name}</div>
-                          <div className="text-sm text-gray-500 flex items-center">
-                            <MapPin className="w-3 h-3 mr-1" />
-                            {client.address.split(",").slice(-2).join(",")}
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading clients...</span>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Outlets</TableHead>
+                    <TableHead>Contract Value</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Rating</TableHead>
+                    <TableHead>Last Contact</TableHead>
+                    <TableHead className="w-12">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredClients.map((client) => (
+                    <TableRow key={client.id}>
+                      <TableCell>
+                        <div className="flex items-center space-x-3">
+                          <Avatar className="w-10 h-10">
+                            <AvatarImage src={`/placeholder-company.jpg`} />
+                            <AvatarFallback>
+                              {client.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")
+                                .slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium">{client.name}</div>
+                            <div className="text-sm text-gray-500 flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {client.address.split(",").slice(-2).join(",")}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        {getTypeIcon(client.type)}
-                        <span className="capitalize">{client.type}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{client.contactPerson}</div>
-                        <div className="text-sm text-gray-500 flex items-center">
-                          <Mail className="w-3 h-3 mr-1" />
-                          {client.email}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          {getTypeIcon(client.type)}
+                          <span className="capitalize">{client.type}</span>
                         </div>
-                        <div className="text-sm text-gray-500 flex items-center">
-                          <Phone className="w-3 h-3 mr-1" />
-                          {client.phone}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{client.contactPerson}</div>
+                          <div className="text-sm text-gray-500 flex items-center">
+                            <Mail className="w-3 h-3 mr-1" />
+                            {client.email}
+                          </div>
+                          <div className="text-sm text-gray-500 flex items-center">
+                            <Phone className="w-3 h-3 mr-1" />
+                            {client.phone}
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-center">
-                        <div className="font-medium">{client.outlets}</div>
-                        <div className="text-sm text-gray-500">{client.employees} employees</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">${client.contractValue.toLocaleString()}</div>
-                      <div className="text-sm text-gray-500">
-                        {client.contractStart} - {client.contractEnd}
-                      </div>
-                    </TableCell>
-                    <TableCell>{getStatusBadge(client.status)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400 mr-1" />
-                        <span>{client.rating}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">{client.lastContact}</div>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
-                            <Edit className="w-4 h-4 mr-2" />
-                            Edit Client
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Phone className="w-4 h-4 mr-2" />
-                            Call Client
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Mail className="w-4 h-4 mr-2" />
-                            Send Email
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Calendar className="w-4 h-4 mr-2" />
-                            Schedule Meeting
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <TrendingUp className="w-4 h-4 mr-2" />
-                            View Analytics
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Building className="w-4 h-4 mr-2" />
-                            View Outlets
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600">
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete Client
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-center">
+                          <div className="font-medium">{client.outlets}</div>
+                          <div className="text-sm text-gray-500">{client.employees} employees</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">${client.contractValue.toLocaleString()}</div>
+                        <div className="text-sm text-gray-500">
+                          {client.contractStart} - {client.contractEnd}
+                        </div>
+                      </TableCell>
+                      <TableCell>{getStatusBadge(client.status)}</TableCell>
+                      <TableCell>
+                        {client.rating ? (
+                          <div className="flex items-center">
+                            <Star className="w-4 h-4 fill-yellow-400 text-yellow-400 mr-1" />
+                            <span>{client.rating}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{client.lastContact || "-"}</div>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEdit(client)}>
+                              <Edit className="w-4 h-4 mr-2" />
+                              Edit Client
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Phone className="w-4 h-4 mr-2" />
+                              Call Client
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Mail className="w-4 h-4 mr-2" />
+                              Send Email
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Calendar className="w-4 h-4 mr-2" />
+                              Schedule Meeting
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <TrendingUp className="w-4 h-4 mr-2" />
+                              View Analytics
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Building className="w-4 h-4 mr-2" />
+                              View Outlets
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(client.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete Client
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
 
-            {filteredClients.length === 0 && (
+            {!loading && filteredClients.length === 0 && (
               <div className="text-center py-8 text-gray-500">No clients found matching your criteria.</div>
             )}
           </CardContent>
