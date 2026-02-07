@@ -75,6 +75,7 @@ export default function AdminDashboard() {
   const [editCandidate, setEditCandidate] = useState(null)
   const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const MAX_UPLOAD_MB = 50
   const [todayStats, setTodayStats] = useState({ candidatesAddedToday: 0, interviewsScheduledToday: 0, hiredToday: 0 })
   const TABLE_COLUMNS = [
     { id: "uid", label: "UID" },
@@ -1116,7 +1117,7 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <Label>Attached files</Label>
-                <p className="text-xs text-muted-foreground mt-1 mb-2">Drag and drop or click to add. PDF, DOC, DOCX, or images (max 5MB). Order the list below.</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">Drag and drop or click to add. PDF, DOC, DOCX, or images (max {MAX_UPLOAD_MB}MB). Order the list below.</p>
                 <label
                   htmlFor="edit-attachments"
                   className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
@@ -1125,7 +1126,7 @@ export default function AdminDashboard() {
                   onDrop={(e) => {
                     e.preventDefault()
                     e.currentTarget.classList.remove("border-green-500")
-                    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.size > 0 && f.size <= MAX_UPLOAD_MB * 1024 * 1024)
                     if (files.length === 0) return
                     files.forEach((file) => {
                       const fd = new FormData()
@@ -1142,7 +1143,7 @@ export default function AdminDashboard() {
                 >
                   <Upload className="w-8 h-8 text-gray-400 mb-2" />
                   <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
-                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max 5MB)</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max {MAX_UPLOAD_MB}MB)</p>
                 </label>
                 <Input
                   id="edit-attachments"
@@ -1151,7 +1152,7 @@ export default function AdminDashboard() {
                   className="hidden"
                   multiple
                   onChange={(e) => {
-                    const files = Array.from(e.target.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    const files = Array.from(e.target.files || []).filter((f) => f.size > 0 && f.size <= MAX_UPLOAD_MB * 1024 * 1024)
                     e.target.value = ""
                     files.forEach((file) => {
                       const fd = new FormData()

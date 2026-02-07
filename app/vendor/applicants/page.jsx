@@ -60,6 +60,7 @@ const INACTIVE_REASON_CATEGORIES = [
   { value: "skill_mismatch", label: "Skill mismatch or failed trial / performance issues" },
 ]
 
+const MAX_UPLOAD_MB = 50
 const initialAddForm = {
   name: "",
   email: "",
@@ -67,14 +68,12 @@ const initialAddForm = {
   position: "",
   experience: "",
   location: [], // multi-select; stored as array, sent as comma-separated
-  availability: "",
   salary: "",
   skills: "",
   education: "",
   previousEmployer: "",
   references: "",
   notes: "",
-  status: "recently-applied",
   source: "",
   resume: null,
   attachmentFiles: [], // { id, file, name } - multiple files with order
@@ -93,6 +92,7 @@ export default function ViewApplicantsPage() {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [addFormData, setAddFormData] = useState(initialAddForm)
   const [addSubmitting, setAddSubmitting] = useState(false)
+  const [addPhoneError, setAddPhoneError] = useState("")
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [total, setTotal] = useState(0)
@@ -121,6 +121,10 @@ export default function ViewApplicantsPage() {
   const [filterPhone, setFilterPhone] = useState("")
   const [filterCandidateId, setFilterCandidateId] = useState("")
   const [filterResumeNotUpdated6, setFilterResumeNotUpdated6] = useState(false)
+  const [appliedDateFrom, setAppliedDateFrom] = useState("")
+  const [appliedDateTo, setAppliedDateTo] = useState("")
+  const [updatedAtFrom, setUpdatedAtFrom] = useState("")
+  const [updatedAtTo, setUpdatedAtTo] = useState("")
   const [isActiveFilter, setIsActiveFilter] = useState("all") // "all" | "active" | "inactive"
   const [sessionUser, setSessionUser] = useState(null) // { id, role } for activate permission
   const [inactiveModalOpen, setInactiveModalOpen] = useState(false)
@@ -131,6 +135,7 @@ export default function ViewApplicantsPage() {
   const [cvLinks, setCvLinks] = useState([])
   const [locationOptions, setLocationOptions] = useState([]) // from outlets + custom
   const [uploadProgress, setUploadProgress] = useState(null) // { current, total, percent }
+  const [exportingCsv, setExportingCsv] = useState(false)
   const TABLE_COLUMNS = [
     { id: "uid", label: "UID" },
     { id: "candidate", label: "Candidate" },
@@ -142,6 +147,8 @@ export default function ViewApplicantsPage() {
     { id: "appliedDate", label: "Applied Date" },
     { id: "salary", label: "Expected Salary" },
     { id: "rating", label: "Rating" },
+    { id: "remark", label: "Remark" },
+    { id: "addedBy", label: "Added by" },
     { id: "lastUpdated", label: "Last Updated" },
     { id: "cvLink", label: "CV Link" },
     { id: "viewCv", label: "View CV" },
@@ -315,9 +322,13 @@ export default function ViewApplicantsPage() {
       const res = await fetch(`/api/candidates/${candidate.id}/schedules`)
       if (res.ok) {
         const list = await res.json()
+        const arr = Array.isArray(list) ? list : []
+        const withDate = arr.filter((s) => s && s.scheduledAt)
         const now = new Date()
-        const upcoming = (Array.isArray(list) ? list : []).filter((s) => s.scheduledAt && new Date(s.scheduledAt) >= now).sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
-        setShareInfoSchedules(upcoming)
+        const upcoming = withDate.filter((s) => new Date(s.scheduledAt) >= now).sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+        // Use next upcoming, or if none then most recent (so {{interviewDate}}/{{interviewTime}} still show)
+        const forPlaceholders = upcoming.length > 0 ? upcoming : withDate.sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt)).slice(0, 1)
+        setShareInfoSchedules(forPlaceholders)
       }
     } catch {}
   }
@@ -443,12 +454,12 @@ export default function ViewApplicantsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
+  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo])
 
   useEffect(() => {
     const t = setTimeout(() => fetchCandidates(), searchQuery ? 300 : 0)
     return () => clearTimeout(t)
-  }, [page, limit, searchQuery, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
+  }, [page, limit, searchQuery, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo])
 
   const fetchCandidates = async () => {
     try {
@@ -462,6 +473,10 @@ export default function ViewApplicantsPage() {
       if (filterPhone.trim()) params.append("phone", filterPhone.trim())
       if (filterCandidateId.trim()) params.append("candidateId", filterCandidateId.trim())
       if (filterResumeNotUpdated6) params.append("resumeNotUpdatedMonths", "6")
+      if (appliedDateFrom.trim()) params.append("appliedDateFrom", appliedDateFrom.trim())
+      if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
+      if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
+      if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
       params.append("page", String(page))
       params.append("limit", String(limit))
 
@@ -502,8 +517,72 @@ export default function ViewApplicantsPage() {
     return <Badge className={`border ${getStatusBadgeClass(status)}`}>{info.label}</Badge>
   }
 
+  const escapeCsv = (v) => {
+    if (v == null || v === "") return ""
+    const s = String(v)
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+
+  const handleExportCsv = async () => {
+    setExportingCsv(true)
+    try {
+      const params = new URLSearchParams()
+      positionFilter.forEach((p) => params.append("positions", p))
+      if (searchQuery) params.append("search", searchQuery)
+      locationFilter.forEach((loc) => params.append("locations", loc))
+      if (isActiveFilter !== "all") params.append("isActive", isActiveFilter)
+      if (filterLocation.trim()) params.append("location", filterLocation.trim())
+      if (filterPhone.trim()) params.append("phone", filterPhone.trim())
+      if (filterCandidateId.trim()) params.append("candidateId", filterCandidateId.trim())
+      if (filterResumeNotUpdated6) params.append("resumeNotUpdatedMonths", "6")
+      if (appliedDateFrom.trim()) params.append("appliedDateFrom", appliedDateFrom.trim())
+      if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
+      if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
+      if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
+      params.set("page", "1")
+      params.set("limit", "10000")
+      const res = await fetch(`/api/candidates?${params.toString()}`)
+      if (!res.ok) throw new Error("Export failed")
+      const json = await res.json()
+      const list = json.data ?? []
+      const headers = ["UID", "Name", "Phone", "Email", "Position", "Status", "Experience", "Location", "Active", "Applied Date", "Expected Salary", "Rating", "Remark", "Added by", "Last Updated"]
+      const rows = list.map((c) => [
+        c.id,
+        c.name,
+        c.phone,
+        c.email ?? "",
+        c.position ?? "",
+        c.status ?? "",
+        c.experience ?? "",
+        c.location ?? "",
+        c.isActive !== false ? "Active" : "Inactive",
+        c.appliedDate ?? "",
+        c.salary ?? "",
+        c.rating ?? "",
+        c.remark ?? "",
+        (c.addedBy || (c.addedByHr && c.addedByHr.name)) ?? "",
+        c.updatedAt ? new Date(c.updatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "",
+      ])
+      const csvContent = [headers.map(escapeCsv).join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\r\n")
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `candidates-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(`Exported ${list.length} candidate(s)`)
+    } catch (err) {
+      console.error(err)
+      toast.error(err.message || "Export failed")
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
   const filteredCandidates = candidates
-  const moreFiltersCount = [locationFilter.length > 0, filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6].filter(Boolean).length
+  const moreFiltersCount = [locationFilter.length > 0, filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
 
   const handleSelectCandidate = (candidateId) => {
     setSelectedCandidates((prev) =>
@@ -663,7 +742,7 @@ export default function ViewApplicantsPage() {
   }
 
   const addAttachmentFiles = (files) => {
-    const list = Array.from(files || []).filter((f) => f && f.size > 0 && f.size <= 5 * 1024 * 1024)
+    const list = Array.from(files || []).filter((f) => f && f.size > 0 && f.size <= MAX_UPLOAD_MB * 1024 * 1024)
     const newItems = list.map((file) => ({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, file, name: file.name }))
     setAddFormData((prev) => ({ ...prev, attachmentFiles: [...(prev.attachmentFiles || []), ...newItems] }))
   }
@@ -678,15 +757,30 @@ export default function ViewApplicantsPage() {
     setAddFormData((prev) => ({ ...prev, attachmentFiles: list }))
   }
 
-  const handleAddSubmit = async (e) => {
+  const handleAddSubmit = async (e, options = {}) => {
     e.preventDefault()
+    const { openScheduleAfter } = options
+    setAddPhoneError("")
     if (!addFormData.name?.trim()) {
       toast.error("Name is required")
       return
     }
-    if (!addFormData.phone?.trim()) {
-      toast.error("Phone is required")
+    const phoneDigits = String(addFormData.phone || "").replace(/\D/g, "")
+    if (phoneDigits.length !== 10) {
+      setAddPhoneError("Mobile number must be exactly 10 digits; no spaces allowed.")
       return
+    }
+    try {
+      const checkRes = await fetch(`/api/candidates?phoneExact=${encodeURIComponent(phoneDigits)}&limit=1`)
+      if (checkRes.ok) {
+        const checkJson = await checkRes.json()
+        if ((checkJson.data || []).length > 0) {
+          setAddPhoneError("A candidate with this mobile number already exists.")
+          return
+        }
+      }
+    } catch {
+      // continue; API will also validate on create
     }
     if (!addFormData.position?.trim()) {
       toast.error("Position is required")
@@ -721,20 +815,23 @@ export default function ViewApplicantsPage() {
       }
       const hasResumeFile = addFormData.resume && typeof addFormData.resume === "object" && addFormData.resume.name
       const locationStr = Array.isArray(addFormData.location) ? addFormData.location.filter(Boolean).join(", ") : (addFormData.location || "")
+      const payloadPhone = phoneDigits
       let response
       if (hasResumeFile && attachments.length === 0) {
         const formData = new FormData()
-        const { resume, attachmentFiles, location: _loc, ...rest } = addFormData
+        const { resume, attachmentFiles, location: _loc, phone: _p, ...rest } = addFormData
         Object.keys(rest).forEach((key) => {
           const v = rest[key]
           if (v != null && v !== "") formData.append(key, v)
         })
         formData.append("location", locationStr)
+        formData.append("phone", payloadPhone)
         formData.append("resume", resume)
         response = await fetch("/api/candidates", { method: "POST", body: formData })
       } else {
         const { resume, attachmentFiles, ...payload } = addFormData
         payload.location = locationStr
+        payload.phone = payloadPhone
         if (attachments.length > 0) {
           payload.attachments = attachments
           if (!payload.resume) payload.resume = attachments[0]?.path
@@ -749,10 +846,17 @@ export default function ViewApplicantsPage() {
         const err = await response.json()
         throw new Error(err.error || "Failed to add candidate")
       }
+      const created = await response.json()
       toast.success("Candidate added successfully")
       setAddFormData(initialAddForm)
       setAddModalOpen(false)
+      setAddPhoneError("")
       fetchCandidates()
+      if (openScheduleAfter && created && created.id) {
+        setScheduleCandidate({ ...created, appliedDate: created.appliedDate || created.appliedDate })
+        setScheduleSlots([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
+        setScheduleModalOpen(true)
+      }
     } catch (error) {
       console.error("Error adding candidate:", error)
       toast.error(error.message || "Failed to add candidate")
@@ -769,8 +873,9 @@ export default function ViewApplicantsPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Applicants</h1>
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm">
-              <Download className="w-4 h-4 mr-2" /> Export
+            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exportingCsv}>
+              {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              Export
             </Button>
             <Button className="bg-green-600 hover:bg-green-700" size="sm" onClick={() => setAddModalOpen(true)}>
               <Plus className="w-4 h-4 mr-2" /> Add Candidate
@@ -792,7 +897,20 @@ export default function ViewApplicantsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="add-phone">Phone Number *</Label>
-                  <Input id="add-phone" type="tel" required value={addFormData.phone} onChange={(e) => setAddFormData({ ...addFormData, phone: e.target.value })} />
+                  <Input
+                    id="add-phone"
+                    type="tel"
+                    required
+                    maxLength={10}
+                    placeholder="10 digits, no spaces"
+                    value={addFormData.phone}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 10)
+                      setAddFormData({ ...addFormData, phone: v })
+                      if (addPhoneError) setAddPhoneError("")
+                    }}
+                  />
+                  {addPhoneError && <p className="text-sm text-red-600 mt-1">{addPhoneError}</p>}
                 </div>
                 <div>
                   <Label htmlFor="add-email">Email (optional)</Label>
@@ -902,45 +1020,9 @@ export default function ViewApplicantsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-4">
-                <div>
-                  <Label>Status (optional)</Label>
-                  <RadioGroup value={addFormData.status} onValueChange={(v) => setAddFormData({ ...addFormData, status: v })} className="flex flex-wrap gap-x-6 gap-y-2 mt-2">
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="recently-applied" id="add-status-recent" />
-                      <Label htmlFor="add-status-recent" className="font-normal">Recently Applied</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="suggested" id="add-status-suggested" />
-                      <Label htmlFor="add-status-suggested" className="font-normal">Suggested</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="backed-out" id="add-status-backed" />
-                      <Label htmlFor="add-status-backed" className="font-normal">Backed Out</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-                <div>
-                  <Label>Availability (optional)</Label>
-                  <RadioGroup value={addFormData.availability} onValueChange={(v) => setAddFormData({ ...addFormData, availability: v })} className="flex flex-wrap gap-x-6 gap-y-2 mt-2">
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="immediate" id="add-avail-immediate" />
-                      <Label htmlFor="add-avail-immediate" className="font-normal">Immediate</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="2-weeks" id="add-avail-2w" />
-                      <Label htmlFor="add-avail-2w" className="font-normal">2 weeks notice</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="1-month" id="add-avail-1m" />
-                      <Label htmlFor="add-avail-1m" className="font-normal">1 month notice</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-              </div>
               <div>
                 <Label>Upload resume / files *</Label>
-                <p className="text-xs text-muted-foreground mt-1 mb-2">At least one file required. PDF, DOC, DOCX, or images (max 5MB each). Order the list to set display order.</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">At least one file required. PDF, DOC, DOCX, or images (max {MAX_UPLOAD_MB}MB each). Order the list to set display order.</p>
                 <label
                   htmlFor="add-attachments"
                   className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
@@ -950,7 +1032,7 @@ export default function ViewApplicantsPage() {
                 >
                   <Upload className="w-8 h-8 text-gray-400 mb-2" />
                   <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
-                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max 5MB)</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max {MAX_UPLOAD_MB}MB)</p>
                 </label>
                 <Input
                   id="add-attachments"
@@ -1006,6 +1088,16 @@ export default function ViewApplicantsPage() {
                 <Button type="submit" className="bg-green-600 hover:bg-green-700" disabled={addSubmitting}>
                   {addSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                   Add Candidate
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-green-600 hover:bg-green-700 border-green-600 text-white"
+                  disabled={addSubmitting}
+                  onClick={(e) => handleAddSubmit(e, { openScheduleAfter: true })}
+                >
+                  {addSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Calendar className="w-4 h-4 mr-2" />}
+                  Add candidate & schedule Interview
                 </Button>
               </div>
             </form>
@@ -1451,7 +1543,7 @@ export default function ViewApplicantsPage() {
               </div>
               <div>
                 <Label>Attached files</Label>
-                <p className="text-xs text-muted-foreground mt-1 mb-2">Drag and drop or click to add. PDF, DOC, DOCX, or images (max 5MB). Order the list below.</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">Drag and drop or click to add. PDF, DOC, DOCX, or images (max {MAX_UPLOAD_MB}MB). Order the list below.</p>
                 <label
                   htmlFor="edit-attachments"
                   className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
@@ -1460,7 +1552,7 @@ export default function ViewApplicantsPage() {
                   onDrop={(e) => {
                     e.preventDefault()
                     e.currentTarget.classList.remove("border-green-500")
-                    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.size > 0 && f.size <= MAX_UPLOAD_MB * 1024 * 1024)
                     if (files.length === 0) return
                     files.forEach((file) => {
                       const fd = new FormData()
@@ -1477,7 +1569,7 @@ export default function ViewApplicantsPage() {
                 >
                   <Upload className="w-8 h-8 text-gray-400 mb-2" />
                   <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
-                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max 5MB)</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max {MAX_UPLOAD_MB}MB)</p>
                 </label>
                 <Input
                   id="edit-attachments"
@@ -1486,7 +1578,7 @@ export default function ViewApplicantsPage() {
                   className="hidden"
                   multiple
                   onChange={(e) => {
-                    const files = Array.from(e.target.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    const files = Array.from(e.target.files || []).filter((f) => f.size > 0 && f.size <= MAX_UPLOAD_MB * 1024 * 1024)
                     e.target.value = ""
                     files.forEach((file) => {
                       const fd = new FormData()
@@ -1629,7 +1721,7 @@ export default function ViewApplicantsPage() {
                 </Select>
               </div>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false) }}>
+                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
                   Clear Filters
                 </Button>
                 <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
@@ -1699,8 +1791,22 @@ export default function ViewApplicantsPage() {
                         <Checkbox id="filter-resume-6" checked={filterResumeNotUpdated6} onCheckedChange={(c) => setFilterResumeNotUpdated6(!!c)} />
                         <Label htmlFor="filter-resume-6" className="font-normal cursor-pointer">Resume not updated in 6+ months</Label>
                       </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-muted-foreground">Applied date range</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input type="date" value={appliedDateFrom} onChange={(e) => setAppliedDateFrom(e.target.value)} placeholder="From" />
+                          <Input type="date" value={appliedDateTo} onChange={(e) => setAppliedDateTo(e.target.value)} placeholder="To" />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-muted-foreground">Last updated range</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input type="date" value={updatedAtFrom} onChange={(e) => setUpdatedAtFrom(e.target.value)} placeholder="From" />
+                          <Input type="date" value={updatedAtTo} onChange={(e) => setUpdatedAtTo(e.target.value)} placeholder="To" />
+                        </div>
+                      </div>
                       <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" size="sm" onClick={() => { setLocationFilter([]); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false) }}>Clear</Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setLocationFilter([]); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
                         <Button size="sm" onClick={() => setMoreFiltersOpen(false)}>Apply</Button>
                       </div>
                     </div>
@@ -1828,6 +1934,8 @@ export default function ViewApplicantsPage() {
                   {visibleColumns.appliedDate !== false && <TableHead>Applied Date</TableHead>}
                   {visibleColumns.salary !== false && <TableHead>Expected Salary</TableHead>}
                   {visibleColumns.rating !== false && <TableHead>Rating</TableHead>}
+                  {visibleColumns.remark !== false && <TableHead>Remark</TableHead>}
+                  {visibleColumns.addedBy !== false && <TableHead>Added by</TableHead>}
                   {visibleColumns.lastUpdated !== false && <TableHead>Last Updated</TableHead>}
                   {visibleColumns.cvLink !== false && <TableHead>CV Link</TableHead>}
                   {visibleColumns.viewCv !== false && <TableHead>View CV</TableHead>}
@@ -1889,6 +1997,8 @@ export default function ViewApplicantsPage() {
                           </div>
                         </TableCell>
                       )}
+                      {visibleColumns.remark !== false && <TableCell className="max-w-[180px] truncate" title={candidate.remark ?? ""}>{candidate.remark ?? "—"}</TableCell>}
+                      {visibleColumns.addedBy !== false && <TableCell>{(candidate.addedBy || (candidate.addedByHr && candidate.addedByHr.name)) ?? "—"}</TableCell>}
                       {visibleColumns.lastUpdated !== false && (
                         <TableCell className="text-sm text-muted-foreground">
                           {formatLastUpdated(candidate.updatedAt)}

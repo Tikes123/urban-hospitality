@@ -47,10 +47,15 @@ export async function GET(request) {
     const locations = searchParams.getAll("locations").filter((l) => l && l.trim())
     const isActiveFilter = searchParams.get("isActive") // "all" | "active" | "inactive"
     const phone = searchParams.get("phone")
+    const phoneExact = searchParams.get("phoneExact")
     const candidateId = searchParams.get("candidateId")
     const resumeNotUpdatedMonths = searchParams.get("resumeNotUpdatedMonths")
+    const appliedDateFrom = searchParams.get("appliedDateFrom")
+    const appliedDateTo = searchParams.get("appliedDateTo")
+    const updatedAtFrom = searchParams.get("updatedAtFrom")
+    const updatedAtTo = searchParams.get("updatedAtTo")
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
-    const limit = Math.min(200, Math.max(10, parseInt(searchParams.get("limit") || "50", 10)))
+    const limit = Math.min(10000, Math.max(10, parseInt(searchParams.get("limit") || "50", 10)))
 
     const where = {}
     if (status && status !== "all") where.status = status
@@ -63,7 +68,8 @@ export async function GET(request) {
     }
     if (isActiveFilter === "active") where.isActive = true
     else if (isActiveFilter === "inactive") where.isActive = false
-    if (phone && phone.trim()) where.phone = { contains: phone.trim() }
+    if (phoneExact && phoneExact.trim()) where.phone = phoneExact.trim()
+    else if (phone && phone.trim()) where.phone = { contains: phone.trim() }
     if (candidateId && candidateId.trim()) {
       const id = parseInt(candidateId.trim(), 10)
       if (!isNaN(id)) where.id = id
@@ -88,12 +94,34 @@ export async function GET(request) {
       if (!Number.isNaN(uid)) searchClause.push({ id: uid })
       where.AND = [...(where.AND || []), { OR: searchClause }]
     }
+    if (appliedDateFrom && appliedDateFrom.trim()) {
+      const d = new Date(appliedDateFrom.trim())
+      if (!Number.isNaN(d.getTime())) where.AND = [...(where.AND || []), { appliedDate: { gte: d } }]
+    }
+    if (appliedDateTo && appliedDateTo.trim()) {
+      const d = new Date(appliedDateTo.trim())
+      if (!Number.isNaN(d.getTime())) {
+        d.setHours(23, 59, 59, 999)
+        where.AND = [...(where.AND || []), { appliedDate: { lte: d } }]
+      }
+    }
+    if (updatedAtFrom && updatedAtFrom.trim()) {
+      const d = new Date(updatedAtFrom.trim())
+      if (!Number.isNaN(d.getTime())) where.AND = [...(where.AND || []), { updatedAt: { gte: d } }]
+    }
+    if (updatedAtTo && updatedAtTo.trim()) {
+      const d = new Date(updatedAtTo.trim())
+      if (!Number.isNaN(d.getTime())) {
+        d.setHours(23, 59, 59, 999)
+        where.AND = [...(where.AND || []), { updatedAt: { lte: d } }]
+      }
+    }
 
     const [total, candidates] = await Promise.all([
       prisma.candidate.count({ where }),
       prisma.candidate.findMany({
         where,
-        include: { designation: true },
+        include: { designation: true, addedByHr: true },
         orderBy: { appliedDate: "desc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -108,6 +136,7 @@ export async function GET(request) {
       updatedAt: candidate.updatedAt.toISOString(),
       resumeUpdatedAt: candidate.resumeUpdatedAt?.toISOString() ?? null,
       attachments: candidate.attachments ? (typeof candidate.attachments === "string" ? JSON.parse(candidate.attachments) : candidate.attachments) : [],
+      addedByHr: candidate.addedByHr ? { id: candidate.addedByHr.id, name: candidate.addedByHr.name } : null,
     }))
 
     return NextResponse.json({ data, total, page, limit, totalPages })
@@ -152,8 +181,22 @@ export async function POST(request) {
       data = parseBody(body)
     }
 
+    const phoneDigits = String(data.phone || "").replace(/\D/g, "")
+    if (phoneDigits.length !== 10) {
+      return NextResponse.json({ error: "Phone must be exactly 10 digits; no spaces or other characters allowed." }, { status: 400 })
+    }
+    const normalizedPhone = phoneDigits
+
+    const existing = await prisma.candidate.findFirst({
+      where: { phone: normalizedPhone },
+    })
+    if (existing) {
+      return NextResponse.json({ error: "A candidate with this mobile number already exists." }, { status: 400 })
+    }
+
     const createData = {
       ...data,
+      phone: normalizedPhone,
       designationId: data.designationId || null,
     }
     if (createData.resume || createData.attachments) createData.resumeUpdatedAt = new Date()
