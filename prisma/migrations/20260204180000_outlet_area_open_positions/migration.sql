@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `outlets` ADD COLUMN `area` VARCHAR(191) NULL,
+    ADD COLUMN `openPositions` INTEGER NOT NULL DEFAULT 0;

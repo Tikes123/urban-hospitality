@@ -38,26 +38,30 @@ model Client {
   @@map("clients")
 }
 
-// Outlet model - represents individual locations/branches
+// Outlet model - represents individual locations/branches (venues)
 model Outlet {
-  id          Int       @id @default(autoincrement())
-  name        String
-  type        String    // hotel, restaurant, bar
-  address     String
-  phone       String
-  email       String
-  manager     String
-  employees   Int       @default(0)
-  rating      Float?
-  status      String    // active, maintenance, inactive
-  description String?   @db.Text
-  image       String?
-  clientId    Int?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             Int       @id @default(autoincrement())
+  name           String
+  type           String    // hotel, restaurant, bar
+  area           String?   // same location/area list as find-job-by-area (e.g. Whitefield, Koramangala)
+  address        String
+  phone          String
+  email          String
+  manager        String
+  employees      Int       @default(0)
+  openPositions  Int       @default(0) // job openings at this venue
+  rating         Float?
+  status         String    // active, maintenance, inactive
+  description    String?   @db.Text
+  image          String?
+  clientId       Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   // Relations
-  client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client        Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  schedules     InterviewSchedule[]
+  jobPostings   JobPosting[]
 
   @@map("outlets")
 }
@@ -84,6 +88,7 @@ model Designation {
 
   // Relations
   candidates    Candidate[]
+  jobPostings   JobPosting[]
 
   @@map("designations")
 }
@@ -91,10 +96,8 @@ model Designation {
 // Candidate/Applicant model
 model Candidate {
   id            Int       @id @default(autoincrement())
-  firstName     String
-  lastName      String
-  name          String    // Full name for display
-  email         String    @unique
+  name          String    // Full name
+  email         String?   @unique
   phone         String
   position      String
   designationId Int?
@@ -112,14 +115,67 @@ model Candidate {
   rating        Float?
   appliedDate   DateTime  @default(now())
   resume        String?   // File path or URL
+  resumeUpdatedAt DateTime? // when resume was last uploaded/updated
+  addedBy       String?   // legacy: who added (string)
+  addedByHrId   Int?      // which HR (vendor employee) added this candidate
+  userId        Int?      // job seeker who applied (via site)
+  remark        String?   @db.Text // legacy
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   // Relations
   designation   Designation? @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  addedByHr     Hr?       @relation(fields: [addedByHrId], references: [id], onDelete: SetNull)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   cvLinks       CVLink[]
+  schedules     InterviewSchedule[]
+  tagHistory    CandidateTagHistory[]
 
   @@map("candidates")
+}
+
+// Scheduled interview / meeting for a candidate at an outlet
+model InterviewSchedule {
+  id          Int       @id @default(autoincrement())
+  candidateId Int
+  outletId    Int
+  scheduledAt DateTime  // date and time
+  type        String?   // e.g. "Phone", "In-person", "Video"
+  status      String?   // same status list as candidates (standby-cv, waiting-for-call-back, etc.)
+  remarks     String?   @db.Text
+  createdAt   DateTime  @default(now())
+
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  outlet      Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@map("interview_schedules")
+}
+
+// Legacy: candidate tag history
+model CandidateTagHistory {
+  id         Int      @id @default(autoincrement())
+  candidateId Int
+  tag        String
+  addedBy    String
+  createdAt  DateTime @default(now())
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("candidate_tag_history")
+}
+
+// Job posting at outlet
+model JobPosting {
+  id             Int         @id @default(autoincrement())
+  designationId  Int
+  outletId       Int
+  status         String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  designation    Designation @relation(fields: [designationId], references: [id], onDelete: Cascade)
+  outlet         Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([designationId, outletId])
+  @@map("job_postings")
 }
 
 // CV Link model - for sharing candidate CVs
@@ -145,4 +201,145 @@ model CVLink {
   candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   @@map("cv_links")
+}
+
+// Vendor (formerly Admin) - uses app for ATS; only super-admin can create vendor accounts
+model AdminUser {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  role         String    @default("vendor") // "vendor" | "super_admin"
+  avatar       String?   // profile image path or URL
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+  hrList       Hr[]
+  menuPermissions AdminUserMenuPermission[]
+
+  @@map("admin_users")
+}
+
+// Super-admin controlled: which menu items appear for this vendor
+model AdminUserMenuPermission {
+  id           Int       @id @default(autoincrement())
+  adminUserId  Int
+  menuKey      String    // e.g. "home", "applicants", "outlets"
+  allowed      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@unique([adminUserId, menuKey])
+  @@map("admin_user_menu_permissions")
+}
+
+// HR employee under a vendor - 2000 INR/month per HR
+model Hr {
+  id        Int       @id @default(autoincrement())
+  vendorId  Int       // AdminUser id (vendor)
+  name      String
+  email     String
+  phone     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  vendor    AdminUser @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  candidates Candidate[]
+
+  @@map("hr")
+}
+
+// App pricing - annual app price, HR monthly price (INR)
+model Pricing {
+  id                Int      @id @default(autoincrement())
+  yearlyVendorPrice Float    @default(6000) // annual app subscription
+  hrMailPrice       Float    @default(2000) // per HR email per month
+  currency          String   @default("INR")
+  updatedAt         DateTime @updatedAt
+
+  @@map("pricing")
+}
+
+model Vendor {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  phone     String?
+  address   String?
+  status    String
+  planStart DateTime?
+  planEnd   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  payments  Payment[]
+
+  @@map("vendors")
+}
+
+model Payment {
+  id                Int      @id @default(autoincrement())
+  vendorId          Int
+  amount            Float
+  type              String
+  razorpayOrderId   String?  @unique
+  razorpayPaymentId String?
+  status            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  vendor            Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+model Blog {
+  id          Int       @id @default(autoincrement())
+  title       String
+  slug        String    @unique
+  excerpt     String?   @db.Text
+  content     String?   @db.Text
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("blogs")
+}
+
+
+// One active session per email: backend must invalidate other sessions when a new device logs in
+model Session {
+  id           Int       @id @default(autoincrement())
+  adminUserId  Int
+  sessionToken String   @unique
+  deviceInfo   String?   // optional: user-agent or device id
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Normal user (job seeker) - can sign up and see applied jobs
+model User {
+  id           Int          @id @default(autoincrement())
+  email        String       @unique
+  passwordHash String
+  name         String?
+  avatar       String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  sessions     UserSession[]
+  candidates   Candidate[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  sessionToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
 }

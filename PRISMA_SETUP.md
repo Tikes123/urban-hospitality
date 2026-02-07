@@ -1,5 +1,7 @@
 # Prisma ORM Setup Guide
-
+Super-admin: tx@master.iam / sekit
+Vendor/Admin: admin@test.com / test123
+Vendor: vendor@test.com / test123
 ## Overview
 This project uses **Prisma ORM** with **MySQL** database for data management.
 
@@ -58,7 +60,22 @@ Generate the Prisma Client (usually done automatically, but can be run manually)
 npm run prisma:generate
 ```
 
-### 6. Open Prisma Studio (Optional)
+### 6. Seed (optional): Super-admin and sample data
+After migrations, run the seed to create the **super-admin** account and optional sample outlets:
+```bash
+npx prisma db seed
+```
+- **Test accounts** (create/update when you run the seed):
+
+  | Role        | Email           | Password | Use after login                    |
+  |------------|------------------|----------|------------------------------------|
+  | Super-admin | `tx@master.iam` | `sekit`  | Go to `/super-admin` (vendors, menu permissions, payments, blogs) |
+  | Vendor/Admin | `admin@test.com` | `test123` | Go to `/admin` or `/vendor` (dashboard, applicants, outlets, etc.) |
+  | Vendor     | `vendor@test.com` | `test123` | Same as above (second test vendor) |
+
+- Requires `DATABASE_URL` in `.env` and `@prisma/adapter-mariadb` (same as the app). If `admin_users` does not exist yet, run `npx prisma migrate deploy` first, then seed again.
+
+### 7. Open Prisma Studio (Optional)
 View and edit your database using Prisma Studio:
 ```bash
 npm run prisma:studio
