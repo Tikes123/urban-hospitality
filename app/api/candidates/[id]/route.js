@@ -80,6 +80,7 @@ export async function PUT(request, { params }) {
       const v = body.inactiveReasonCategory != null ? String(body.inactiveReasonCategory).trim() : ""
       updateData.inactiveReasonCategory = allowed.includes(v) ? v : null
     }
+    if (body.shareIntro !== undefined) updateData.shareIntro = body.shareIntro != null ? String(body.shareIntro).trim() || null : null
     if (body.isActive !== undefined) {
       const session = await getVendorSession(request)
       if (!session) return NextResponse.json({ error: "Unauthorized: session required to change active status" }, { status: 401 })

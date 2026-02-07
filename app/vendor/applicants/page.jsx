@@ -150,6 +150,8 @@ export default function ViewApplicantsPage() {
   const [copiedCvLinkId, setCopiedCvLinkId] = useState(null)
   const [shareInfoOpen, setShareInfoOpen] = useState(false)
   const [shareInfoCandidate, setShareInfoCandidate] = useState(null)
+  const [shareInfoIntro, setShareInfoIntro] = useState("")
+  const [shareInfoIntroSaving, setShareInfoIntroSaving] = useState(false)
   const [shareInfoFields, setShareInfoFields] = useState({ name: true, phone: true, email: false, position: true, experience: false, location: true, appliedDate: false, salary: true, status: false, cvLink: true, interview: false })
   const [shareInfoCopied, setShareInfoCopied] = useState(false)
   const [shareInfoSchedules, setShareInfoSchedules] = useState([])
@@ -213,15 +215,21 @@ export default function ViewApplicantsPage() {
   const fetchCvLinks = async () => {
     try {
       const res = await fetch("/api/cv-links")
-      if (!res.ok) return
+      if (!res.ok) return []
       const data = await res.json()
-      setCvLinks(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      setCvLinks(list)
+      return list
     } catch (e) {
       console.error("Failed to fetch CV links", e)
+      return []
     }
   }
 
-  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id && l.status === "active")
+  const cvLinkByCandidateId = (id, linksList) => {
+    const list = linksList ?? cvLinks
+    return list.find((l) => l.candidateId === id && l.status === "active")
+  }
 
   const handleActivateCvLink = async (candidate) => {
     const existing = cvLinkByCandidateId(candidate.id)
@@ -297,8 +305,12 @@ export default function ViewApplicantsPage() {
 
   const openShareInfo = async (candidate) => {
     setShareInfoCandidate(candidate)
+    setShareInfoIntro(candidate.shareIntro ?? "")
     setShareInfoOpen(true)
     setShareInfoSchedules([])
+    if (cvLinkByCandidateId(candidate.id)) {
+      setShareInfoFields((prev) => ({ ...prev, cvLink: true }))
+    }
     try {
       const res = await fetch(`/api/candidates/${candidate.id}/schedules`)
       if (res.ok) {
@@ -310,10 +322,25 @@ export default function ViewApplicantsPage() {
     } catch {}
   }
 
-  const buildShareText = () => {
+  const copyCvLinkInShareModal = () => {
+    if (!shareInfoCandidate) return
+    const link = cvLinkByCandidateId(shareInfoCandidate.id)
+    if (!link) {
+      toast.error("No active CV link for this candidate")
+      return
+    }
+    const cvUrl = getCvLinkUrl(link.linkId)
+    navigator.clipboard.writeText(cvUrl)
+    setShareInfoFields((prev) => ({ ...prev, cvLink: true }))
+    toast.success("CV link copied – included in Copy all")
+  }
+
+  const buildShareText = (cvLinksOverride) => {
     if (!shareInfoCandidate) return ""
     const c = shareInfoCandidate
     const lines = []
+    const intro = (shareInfoIntro ?? "").trim()
+    if (intro) lines.push(intro, "")
     if (shareInfoFields.name) lines.push(`Name: ${c.name}`)
     if (shareInfoFields.phone) lines.push(`Phone: ${c.phone}`)
     if (shareInfoFields.email) lines.push(`Email: ${c.email || "—"}`)
@@ -324,7 +351,7 @@ export default function ViewApplicantsPage() {
     if (shareInfoFields.salary) lines.push(`Expected Salary: ${c.salary || "—"}`)
     if (shareInfoFields.status) lines.push(`Status: ${c.status || "—"}`)
     if (shareInfoFields.cvLink) {
-      const link = cvLinkByCandidateId(c.id)
+      const link = cvLinkByCandidateId(c.id, cvLinksOverride)
       const cvUrl = link ? getCvLinkUrl(link.linkId) : "—"
       lines.push(`CV Link: ${cvUrl}`)
     }
@@ -338,10 +365,42 @@ export default function ViewApplicantsPage() {
     return lines.join("\n")
   }
 
-  const copyShareInfo = () => {
-    const text = buildShareText()
-    if (!text) {
-      toast.error("Select at least one field to copy")
+  const ensureCvLinkThenBuildShareText = async () => {
+    let linksList = null
+    if (shareInfoCandidate && shareInfoFields.cvLink && !cvLinkByCandidateId(shareInfoCandidate.id)) {
+      try {
+        await handleActivateCvLink(shareInfoCandidate)
+        linksList = await fetchCvLinks()
+      } catch (_) {
+        // continue – buildShareText will show "—" for CV Link
+      }
+    }
+    return buildShareText(linksList ?? undefined)
+  }
+
+  const saveShareIntro = async () => {
+    if (!shareInfoCandidate) return
+    setShareInfoIntroSaving(true)
+    try {
+      const res = await fetch(`/api/candidates/${shareInfoCandidate.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shareIntro: shareInfoIntro }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to save")
+      setShareInfoCandidate((prev) => prev ? { ...prev, shareIntro: shareInfoIntro } : null)
+      toast.success("Highlight / Intro saved")
+    } catch (err) {
+      toast.error(err.message || "Failed to save")
+    } finally {
+      setShareInfoIntroSaving(false)
+    }
+  }
+
+  const copyShareInfo = async () => {
+    const text = await ensureCvLinkThenBuildShareText()
+    if (!text.trim()) {
+      toast.error("Add a highlight/intro or select at least one field to copy")
       return
     }
     navigator.clipboard.writeText(text)
@@ -350,20 +409,20 @@ export default function ViewApplicantsPage() {
     setTimeout(() => setShareInfoCopied(false), 2500)
   }
 
-  const shareViaWhatsApp = () => {
-    const text = buildShareText()
-    if (!text) {
-      toast.error("Select at least one field to share")
+  const shareViaWhatsApp = async () => {
+    const text = await ensureCvLinkThenBuildShareText()
+    if (!text.trim()) {
+      toast.error("Add a highlight/intro or select at least one field to share")
       return
     }
     const encoded = encodeURIComponent(text)
     window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer")
   }
 
-  const shareNative = () => {
-    const text = buildShareText()
-    if (!text) {
-      toast.error("Select at least one field to share")
+  const shareNative = async () => {
+    const text = await ensureCvLinkThenBuildShareText()
+    if (!text.trim()) {
+      toast.error("Add a highlight/intro or select at least one field to share")
       return
     }
     if (typeof navigator !== "undefined" && navigator.share) {
@@ -1100,6 +1159,22 @@ export default function ViewApplicantsPage() {
             </DialogHeader>
             {shareInfoCandidate && (
               <div className="mt-4 space-y-4">
+                <div>
+                  <Label htmlFor="share-intro">Highlight / Intro</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Editable intro text – included at the top when you Copy all. Save to keep for this candidate.</p>
+                  <Textarea
+                    id="share-intro"
+                    placeholder="e.g. Strong candidate for Sous Chef role, 5+ years in fine dining..."
+                    value={shareInfoIntro}
+                    onChange={(e) => setShareInfoIntro(e.target.value)}
+                    className="mt-2 min-h-[80px] resize-y"
+                    rows={3}
+                  />
+                  <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={saveShareIntro} disabled={shareInfoIntroSaving}>
+                    {shareInfoIntroSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    Save intro
+                  </Button>
+                </div>
                 <p className="text-sm font-medium">Include in copy:</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[
@@ -1125,7 +1200,7 @@ export default function ViewApplicantsPage() {
                   ))}
                 </div>
                 <div className="flex flex-col gap-3 pt-2 border-t">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 items-center">
                   <Button className="bg-green-600 hover:bg-green-700" onClick={copyShareInfo} disabled={shareInfoCopied}>
                     {shareInfoCopied ? (
                       <><Check className="w-4 h-4 mr-2" /> Copied</>
@@ -1133,8 +1208,14 @@ export default function ViewApplicantsPage() {
                       <><Copy className="w-4 h-4 mr-2" /> Copy all</>
                     )}
                   </Button>
+                  {shareInfoCandidate && cvLinkByCandidateId(shareInfoCandidate.id) && (
+                    <Button variant="outline" size="sm" onClick={copyCvLinkInShareModal} className="gap-1.5">
+                      <Link2 className="w-4 h-4" /> Copy link
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={() => setShareInfoOpen(false)}>Close</Button>
                 </div>
+                <p className="text-xs text-muted-foreground">Click &quot;Copy link&quot; to copy the CV link and auto-include it in &quot;Copy all&quot;.</p>
                 <p className="text-xs text-muted-foreground">Share via</p>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={shareViaWhatsApp}>

@@ -126,6 +126,7 @@ model Candidate {
   inactivatedByHrId       Int?   // if HR inactivated, only this HR can reactivate
   inactiveReason          String? @db.Text // optional remark when marked inactive
   inactiveReasonCategory String? // one of: behaviour, theft_fraud, absconded, skill_mismatch
+  shareIntro            String? @db.Text // highlight/intro text for Share info modal (editable, included in Copy all)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
