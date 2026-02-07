@@ -102,7 +102,7 @@ model Candidate {
   position      String
   designationId Int?
   experience    String
-  location      String
+  location      String    // single value or comma-separated for multiple
   availability  String?
   salary        String?
   skills        String?   @db.Text
@@ -121,6 +121,9 @@ model Candidate {
   addedByHrId   Int?      // which HR (vendor employee) added this candidate
   userId        Int?      // job seeker who applied (via site)
   remark        String?   @db.Text // legacy
+  isActive      Boolean   @default(true)
+  inactivatedByAdminUserId Int?  // only this vendor can reactivate
+  inactivatedByHrId       Int?   // if HR inactivated, only this HR can reactivate
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -133,6 +136,17 @@ model Candidate {
   tagHistory    CandidateTagHistory[]
 
   @@map("candidates")
+}
+
+// Custom locations added by vendors (merged with outlet areas/addresses for dropdowns)
+model CustomLocation {
+  id                  Int      @id @default(autoincrement())
+  value               String
+  createdByAdminUserId Int
+  createdAt           DateTime @default(now())
+  adminUser           AdminUser @relation(fields: [createdByAdminUserId], references: [id], onDelete: Cascade)
+
+  @@map("custom_locations")
 }
 
 // Scheduled interview / meeting for a candidate at an outlet
@@ -217,6 +231,7 @@ model AdminUser {
   sessions     Session[]
   hrList       Hr[]
   menuPermissions AdminUserMenuPermission[]
+  customLocations CustomLocation[]
 
   @@map("admin_users")
 }

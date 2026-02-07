@@ -41,8 +41,11 @@ export async function GET(request) {
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get("status")
     const position = searchParams.get("position")
+    const positions = searchParams.getAll("positions").filter((p) => p && p !== "all")
     const search = searchParams.get("search")
     const location = searchParams.get("location")
+    const locations = searchParams.getAll("locations").filter((l) => l && l.trim())
+    const isActiveFilter = searchParams.get("isActive") // "all" | "active" | "inactive"
     const phone = searchParams.get("phone")
     const candidateId = searchParams.get("candidateId")
     const resumeNotUpdatedMonths = searchParams.get("resumeNotUpdatedMonths")
@@ -51,8 +54,15 @@ export async function GET(request) {
 
     const where = {}
     if (status && status !== "all") where.status = status
-    if (position && position !== "all") where.position = { contains: position }
+    if (positions.length > 0) {
+      where.position = { in: positions }
+    } else if (position && position !== "all") where.position = { contains: position }
     if (location && location.trim()) where.location = { contains: location.trim() }
+    if (locations.length > 0) {
+      where.AND = [...(where.AND || []), { OR: locations.map((loc) => ({ location: { contains: loc.trim() } })) }]
+    }
+    if (isActiveFilter === "active") where.isActive = true
+    else if (isActiveFilter === "inactive") where.isActive = false
     if (phone && phone.trim()) where.phone = { contains: phone.trim() }
     if (candidateId && candidateId.trim()) {
       const id = parseInt(candidateId.trim(), 10)
@@ -63,10 +73,7 @@ export async function GET(request) {
       if (!isNaN(months) && months > 0) {
         const cutoff = new Date()
         cutoff.setMonth(cutoff.getMonth() - months)
-        where.OR = [
-          { resumeUpdatedAt: null },
-          { resumeUpdatedAt: { lt: cutoff } },
-        ]
+        where.AND = [...(where.AND || []), { OR: [{ resumeUpdatedAt: null }, { resumeUpdatedAt: { lt: cutoff } }] }]
       }
     }
     if (search) {
@@ -75,13 +82,11 @@ export async function GET(request) {
         { email: { contains: search } },
         { phone: { contains: search } },
         { position: { contains: search } },
+        { location: { contains: search } },
       ]
-      if (where.OR) {
-        where.AND = [{ OR: where.OR }, { OR: searchClause }]
-        delete where.OR
-      } else {
-        where.OR = searchClause
-      }
+      const uid = parseInt(search.trim(), 10)
+      if (!Number.isNaN(uid)) searchClause.push({ id: uid })
+      where.AND = [...(where.AND || []), { OR: searchClause }]
     }
 
     const [total, candidates] = await Promise.all([

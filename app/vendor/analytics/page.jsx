@@ -9,7 +9,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { VendorHeader } from "@/components/vendor/vendor-header"
-import { ArrowLeft, Users, Calendar, UserCheck, Loader2, BarChart3 } from "lucide-react"
+import { ArrowLeft, Users, Calendar, UserCheck, Loader2, BarChart3, UserX, XCircle, TrendingUp } from "lucide-react"
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts"
 
 const PERIODS = [
   { value: "day", label: "Today" },
@@ -18,16 +30,25 @@ const PERIODS = [
   { value: "year", label: "This year" },
 ]
 
+const BUCKETS = [
+  { value: "day", label: "Daily" },
+  { value: "week", label: "Weekly" },
+  { value: "month", label: "Monthly" },
+  { value: "quarter", label: "Quarterly" },
+]
+
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState("week")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
+  const [bucket, setBucket] = useState("day")
+  const [hrFilter, setHrFilter] = useState("all")
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    const params = new URLSearchParams({ period })
+    const params = new URLSearchParams({ period, bucket, hrFilter: hrFilter || "all" })
     if (from) params.set("from", from)
     if (to) params.set("to", to)
     fetch(`/api/analytics?${params.toString()}`)
@@ -35,7 +56,7 @@ export default function AnalyticsPage() {
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false))
-  }, [period, from, to])
+  }, [period, from, to, bucket, hrFilter])
 
   const applyToday = () => {
     const d = new Date()
@@ -85,6 +106,21 @@ export default function AnalyticsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="w-48">
+                    <Label>View by</Label>
+                    <Select value={hrFilter || "all"} onValueChange={setHrFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(data?.hrOptions ?? [{ value: "all", label: "All" }]).map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div>
                     <Label>From (optional)</Label>
                     <Input
@@ -116,7 +152,7 @@ export default function AnalyticsPage() {
             </div>
           ) : data && data.period !== "today" && (data.candidatesAdded !== undefined || data.perDayHiring?.length > 0) ? (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                 <Card>
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
@@ -145,12 +181,166 @@ export default function AnalyticsPage() {
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">Hired</p>
                         <p className="text-2xl font-bold">{data.hiredCount ?? 0}</p>
+                        {data.hiredPct != null && data.totalOutcomes > 0 && (
+                          <p className="text-xs text-muted-foreground">{data.hiredPct}% of outcomes</p>
+                        )}
                       </div>
                       <UserCheck className="h-10 w-10 text-green-500" />
                     </div>
                   </CardContent>
                 </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Backed out</p>
+                        <p className="text-2xl font-bold">{data.backedOutCount ?? 0}</p>
+                        {data.backedOutPct != null && data.totalOutcomes > 0 && (
+                          <p className="text-xs text-muted-foreground">{data.backedOutPct}% of outcomes</p>
+                        )}
+                      </div>
+                      <UserX className="h-10 w-10 text-red-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Not selected</p>
+                        <p className="text-2xl font-bold">{data.notSelectedCount ?? 0}</p>
+                        {data.notSelectedPct != null && data.totalOutcomes > 0 && (
+                          <p className="text-xs text-muted-foreground">{data.notSelectedPct}% of outcomes</p>
+                        )}
+                      </div>
+                      <XCircle className="h-10 w-10 text-gray-500" />
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
+
+              {data.comparison && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5" />
+                      Interview scheduled vs Hired from them
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Interviews scheduled (period)</p>
+                        <p className="text-2xl font-bold">{data.comparison.interviewsScheduled ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Candidates with schedule</p>
+                        <p className="text-2xl font-bold">{data.comparison.uniqueCandidatesScheduled ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Hired from scheduled</p>
+                        <p className="text-2xl font-bold">{data.comparison.hiredFromScheduled ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Conversion (hired / with schedule)</p>
+                        <p className="text-2xl font-bold">{data.comparison.conversionPct ?? 0}%</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {data.barChartBuckets && data.barChartBuckets.length > 0 && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle>Bar chart by period</CardTitle>
+                    <div className="w-36">
+                      <Select value={bucket} onValueChange={setBucket}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BUCKETS.map((b) => (
+                            <SelectItem key={b.value} value={b.value}>
+                              {b.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data.barChartBuckets} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                          <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <Tooltip formatter={(value) => [value, ""]} />
+                          <Legend />
+                          <Bar dataKey="candidatesAdded" name="Candidates added" fill="#3b82f6" />
+                          <Bar dataKey="interviewsScheduled" name="Interviews scheduled" fill="#f59e0b" />
+                          <Bar dataKey="hired" name="Hired" fill="#22c55e" />
+                          <Bar dataKey="backedOut" name="Backed out" fill="#ef4444" />
+                          <Bar dataKey="notSelected" name="Not selected" fill="#6b7280" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {data.pieChartSummary && data.pieChartSummary.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Distribution (numbers & percentage)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col md:flex-row items-center gap-6">
+                      <div className="h-72 w-72">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={data.pieChartSummary}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={100}
+                              label={({ name, value }) => `${name}: ${value}`}
+                            >
+                              {data.pieChartSummary.map((entry, i) => (
+                                <Cell key={i} fill={entry.fill} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value, name, props) => {
+                              const total = data.pieChartSummary.reduce((s, d) => s + d.value, 0)
+                              const pct = total ? Math.round((value / total) * 100) : 0
+                              return [`${value} (${pct}%)`, name]
+                            }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        {data.pieChartSummary.map((entry, i) => {
+                          const total = data.pieChartSummary.reduce((s, d) => s + d.value, 0)
+                          const pct = total ? Math.round((entry.value / total) * 100) : 0
+                          return (
+                            <div key={i} className="flex items-center justify-between gap-4">
+                              <span className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.fill }} />
+                                {entry.name}
+                              </span>
+                              <span className="font-medium">
+                                {entry.value} ({pct}%)
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {data.perDayHiring && data.perDayHiring.length > 0 && (
                 <Card>
@@ -210,57 +400,94 @@ export default function AnalyticsPage() {
                 </Card>
               )}
 
-              {(data.topHrByCandidates?.length > 0 || data.hiredByHr?.length > 0) && (
+              {(data.hrWise?.length > 0 || data.topHrByCandidates?.length > 0 || data.hiredByHr?.length > 0) && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>HR insights</CardTitle>
+                    <CardTitle>HR insights (all & per HR)</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {data.topHrByCandidates?.length > 0 && (
-                      <div>
-                        <h4 className="font-medium mb-2">Candidates added by HR (this period)</h4>
-                        <div className="overflow-x-auto rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>HR</TableHead>
-                                <TableHead>Candidates added</TableHead>
+                    {data.hrWise && data.hrWise.length > 0 ? (
+                      <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>HR</TableHead>
+                              <TableHead>Candidates added</TableHead>
+                              <TableHead>Hired</TableHead>
+                              <TableHead>Interviews scheduled</TableHead>
+                              <TableHead>Backed out</TableHead>
+                              <TableHead>Not selected</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {data.hrWise.map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="font-medium">{row.hr}</TableCell>
+                                <TableCell>{row.candidatesAdded}</TableCell>
+                                <TableCell>
+                                  {row.hired} {row.hiredPct != null && row.hiredPct > 0 && <span className="text-muted-foreground">({row.hiredPct}%)</span>}
+                                </TableCell>
+                                <TableCell>{row.interviewsScheduled}</TableCell>
+                                <TableCell>
+                                  {row.backedOut} {row.backedOutPct != null && row.backedOutPct > 0 && <span className="text-muted-foreground">({row.backedOutPct}%)</span>}
+                                </TableCell>
+                                <TableCell>
+                                  {row.notSelected} {row.notSelectedPct != null && row.notSelectedPct > 0 && <span className="text-muted-foreground">({row.notSelectedPct}%)</span>}
+                                </TableCell>
                               </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {data.topHrByCandidates.map((row, i) => (
-                                <TableRow key={i}>
-                                  <TableCell>{row.hr}</TableCell>
-                                  <TableCell>{row.count}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
+                            ))}
+                          </TableBody>
+                        </Table>
                       </div>
-                    )}
-                    {data.hiredByHr?.length > 0 && (
-                      <div>
-                        <h4 className="font-medium mb-2">Hired candidates by HR</h4>
-                        <div className="overflow-x-auto rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>HR</TableHead>
-                                <TableHead>Hired count</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {data.hiredByHr.map((row, i) => (
-                                <TableRow key={i}>
-                                  <TableCell>{row.hr}</TableCell>
-                                  <TableCell>{row.count}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </div>
+                    ) : (
+                      <>
+                        {data.topHrByCandidates?.length > 0 && (
+                          <div>
+                            <h4 className="font-medium mb-2">Candidates added by HR (this period)</h4>
+                            <div className="overflow-x-auto rounded-md border">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>HR</TableHead>
+                                    <TableHead>Candidates added</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {data.topHrByCandidates.map((row, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell>{row.hr}</TableCell>
+                                      <TableCell>{row.count}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        )}
+                        {data.hiredByHr?.length > 0 && (
+                          <div>
+                            <h4 className="font-medium mb-2">Hired candidates by HR</h4>
+                            <div className="overflow-x-auto rounded-md border">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>HR</TableHead>
+                                    <TableHead>Hired count</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {data.hiredByHr.map((row, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell>{row.hr}</TableCell>
+                                      <TableCell>{row.count}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </CardContent>
                 </Card>

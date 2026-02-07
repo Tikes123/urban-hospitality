@@ -25,20 +25,30 @@ export async function GET(request, { params }) {
   }
 }
 
+async function getVendorSession(request) {
+  const auth = request.headers.get("authorization")?.replace("Bearer ", "")
+  if (!auth) return null
+  return prisma.session.findFirst({
+    where: { sessionToken: auth, expiresAt: { gt: new Date() } },
+    include: { adminUser: true },
+  })
+}
+
 export async function PUT(request, { params }) {
   try {
     const { id: rawId } = await params
     const id = parseInt(rawId)
     const body = await request.json()
     const updateData = {}
-    const fields = ["name", "email", "phone", "position", "designationId", "experience", "location", "availability", "salary", "skills", "education", "previousEmployer", "references", "notes", "status", "source", "rating", "resume", "attachments"]
     if (body.name !== undefined) updateData.name = body.name
     if (body.email !== undefined) updateData.email = body.email || null
     if (body.phone !== undefined) updateData.phone = body.phone
     if (body.position !== undefined) updateData.position = body.position
     if (body.designationId !== undefined) updateData.designationId = body.designationId ? parseInt(body.designationId) : null
     if (body.experience !== undefined) updateData.experience = body.experience
-    if (body.location !== undefined) updateData.location = body.location
+    if (body.location !== undefined) {
+      updateData.location = Array.isArray(body.location) ? body.location.filter(Boolean).join(", ") : String(body.location ?? "")
+    }
     if (body.availability !== undefined) updateData.availability = body.availability
     if (body.salary !== undefined) updateData.salary = body.salary
     if (body.skills !== undefined) updateData.skills = body.skills
@@ -58,6 +68,25 @@ export async function PUT(request, { params }) {
       updateData.attachments = typeof body.attachments === "string" ? body.attachments : JSON.stringify(arr)
       updateData.resumeUpdatedAt = new Date()
       if (arr.length > 0 && arr[0].path) updateData.resume = arr[0].path
+    }
+
+    if (body.isActive !== undefined) {
+      const session = await getVendorSession(request)
+      if (!session) return NextResponse.json({ error: "Unauthorized: session required to change active status" }, { status: 401 })
+      const existing = await prisma.candidate.findUnique({ where: { id }, select: { isActive: true, inactivatedByAdminUserId: true, inactivatedByHrId: true } })
+      if (!existing) return NextResponse.json({ error: "Candidate not found" }, { status: 404 })
+      if (body.isActive === false) {
+        updateData.isActive = false
+        updateData.inactivatedByAdminUserId = session.adminUserId
+        updateData.inactivatedByHrId = null
+      } else {
+        const canActivate = existing.inactivatedByAdminUserId != null && existing.inactivatedByAdminUserId === session.adminUserId
+          || (existing.inactivatedByHrId != null && session.adminUser?.role === "super_admin")
+        if (!canActivate) return NextResponse.json({ error: "Only the vendor or HR who inactivated this candidate can reactivate them" }, { status: 403 })
+        updateData.isActive = true
+        updateData.inactivatedByAdminUserId = null
+        updateData.inactivatedByHrId = null
+      }
     }
 
     const candidate = await prisma.candidate.update({

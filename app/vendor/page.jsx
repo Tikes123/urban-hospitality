@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,9 @@ import {
   BarChart3,
   Link2,
   Copy,
+  ChevronDown,
+  Columns3,
+  Upload,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
@@ -46,7 +50,9 @@ export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("all")
-  const [positionSearch, setPositionSearch] = useState("")
+  const [positionFilter, setPositionFilter] = useState([])
+  const [positionOptions, setPositionOptions] = useState([])
+  const [positionDropdownOpen, setPositionDropdownOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [total, setTotal] = useState(0)
@@ -67,15 +73,61 @@ export default function AdminDashboard() {
   const [viewDetailsCandidate, setViewDetailsCandidate] = useState(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editCandidate, setEditCandidate] = useState(null)
-  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "" })
+  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [todayStats, setTodayStats] = useState({ candidatesAddedToday: 0, interviewsScheduledToday: 0, hiredToday: 0 })
+  const TABLE_COLUMNS = [
+    { id: "uid", label: "UID" },
+    { id: "candidate", label: "Candidate" },
+    { id: "position", label: "Position" },
+    { id: "status", label: "Status" },
+    { id: "experience", label: "Experience" },
+    { id: "location", label: "Location" },
+    { id: "appliedDate", label: "Applied Date" },
+    { id: "salary", label: "Expected Salary" },
+    { id: "rating", label: "Rating" },
+    { id: "lastUpdated", label: "Last Updated" },
+    { id: "cvLink", label: "CV Link" },
+  ]
+  const COLUMNS_STORAGE_KEY = "vendor-home-visible-columns"
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    const defaults = TABLE_COLUMNS.reduce((acc, c) => ({ ...acc, [c.id]: true }), {})
+    if (typeof window === "undefined") return defaults
+    try {
+      const stored = localStorage.getItem(COLUMNS_STORAGE_KEY)
+      if (!stored) return defaults
+      const parsed = JSON.parse(stored)
+      if (typeof parsed !== "object" || parsed === null) return defaults
+      return TABLE_COLUMNS.reduce((acc, c) => ({
+        ...acc,
+        [c.id]: parsed[c.id] !== undefined ? !!parsed[c.id] : true,
+      }), {})
+    } catch {
+      return defaults
+    }
+  })
+  const [columnsPopoverOpen, setColumnsPopoverOpen] = useState(false)
+  const [copiedCvLinkId, setCopiedCvLinkId] = useState(null)
   const [todayStatsLoading, setTodayStatsLoading] = useState(true)
   const [cvLinks, setCvLinks] = useState([])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(visibleColumns))
+    } catch {}
+  }, [visibleColumns])
+
+  useEffect(() => {
     fetchOutlets()
     fetchCvLinks()
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/candidates/positions")
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setPositionOptions)
+      .catch(() => setPositionOptions([]))
   }, [])
 
   useEffect(() => {
@@ -88,19 +140,18 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setPage(1)
-  }, [statusFilter, positionSearch])
+  }, [statusFilter, positionFilter])
 
   useEffect(() => {
-    const t = setTimeout(() => fetchCandidates(), positionSearch ? 300 : 0)
-    return () => clearTimeout(t)
-  }, [page, limit, statusFilter, positionSearch])
+    fetchCandidates()
+  }, [page, limit, statusFilter, positionFilter])
 
   const fetchCandidates = async () => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
       if (statusFilter !== "all") params.append("status", statusFilter)
-      if (positionSearch) params.append("search", positionSearch)
+      positionFilter.forEach((p) => params.append("positions", p))
       params.append("page", String(page))
       params.append("limit", String(limit))
       const res = await fetch(`/api/candidates?${params.toString()}`)
@@ -204,9 +255,13 @@ export default function AdminDashboard() {
     }
   }
 
-  const copyCvLink = (url) => {
+  const copyCvLink = (url, candidateId) => {
     navigator.clipboard.writeText(url)
     toast.success("CV link copied")
+    if (candidateId != null) {
+      setCopiedCvLinkId(candidateId)
+      setTimeout(() => setCopiedCvLinkId(null), 2000)
+    }
   }
 
   const getStatusBadge = (status) => {
@@ -412,11 +467,57 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <Label className="block text-sm font-medium text-gray-700 mb-2">Filter by Position:</Label>
-                <Input
-                  placeholder="Type to search positions..."
-                  value={positionSearch}
-                  onChange={(e) => setPositionSearch(e.target.value)}
-                />
+                <Popover open={positionDropdownOpen} onOpenChange={setPositionDropdownOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between font-normal min-h-10"
+                    >
+                      <span className="truncate">
+                        {positionFilter.length === 0
+                          ? "All positions"
+                          : positionFilter.length === 1
+                            ? positionFilter[0]
+                            : `${positionFilter.length} positions selected`}
+                      </span>
+                      <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+                    <div className="max-h-60 overflow-y-auto space-y-1">
+                      {positionOptions.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-2">No positions found</p>
+                      ) : (
+                        positionOptions.map((pos) => (
+                          <label
+                            key={pos}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={positionFilter.includes(pos)}
+                              onCheckedChange={(checked) => {
+                                setPositionFilter((prev) =>
+                                  checked ? [...prev, pos] : prev.filter((p) => p !== pos)
+                                )
+                              }}
+                            />
+                            <span className="truncate">{pos}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {positionFilter.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full mt-2"
+                        onClick={() => setPositionFilter([])}
+                      >
+                        Clear selection
+                      </Button>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
@@ -431,7 +532,7 @@ export default function AdminDashboard() {
                 variant="outline"
                 onClick={() => {
                   setStatusFilter("all")
-                  setPositionSearch("")
+                  setPositionFilter([])
                 }}
               >
                 Clear All
@@ -440,7 +541,28 @@ export default function AdminDashboard() {
 
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm text-muted-foreground">Candidates ({total})</span>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                <Popover open={columnsPopoverOpen} onOpenChange={setColumnsPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1">
+                      <Columns3 className="w-4 h-4" /> Columns
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-2" align="end">
+                    <p className="text-sm font-medium mb-2">Show / hide columns</p>
+                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                      {TABLE_COLUMNS.map((col) => (
+                        <label key={col.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm cursor-pointer hover:bg-accent">
+                          <Checkbox
+                            checked={visibleColumns[col.id] !== false}
+                            onCheckedChange={(checked) => setVisibleColumns((prev) => ({ ...prev, [col.id]: !!checked }))}
+                          />
+                          {col.label}
+                        </label>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <Button variant={viewMode === "table" ? "default" : "outline"} size="sm" onClick={() => setViewMode("table")}>Table</Button>
                 <Button variant={viewMode === "grid" ? "default" : "outline"} size="sm" onClick={() => setViewMode("grid")}>Grid</Button>
               </div>
@@ -499,23 +621,24 @@ export default function AdminDashboard() {
                       onCheckedChange={handleSelectAll}
                     />
                   </TableHead>
-                  <TableHead>Candidate</TableHead>
-                  <TableHead>Position</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Experience</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Applied Date</TableHead>
-                  <TableHead>Expected Salary</TableHead>
-                  <TableHead>Rating</TableHead>
-                  <TableHead>Last Updated</TableHead>
-                  <TableHead>CV Link</TableHead>
+                  {visibleColumns.uid !== false && <TableHead>UID</TableHead>}
+                  {visibleColumns.candidate !== false && <TableHead>Candidate</TableHead>}
+                  {visibleColumns.position !== false && <TableHead>Position</TableHead>}
+                  {visibleColumns.status !== false && <TableHead>Status</TableHead>}
+                  {visibleColumns.experience !== false && <TableHead>Experience</TableHead>}
+                  {visibleColumns.location !== false && <TableHead>Location</TableHead>}
+                  {visibleColumns.appliedDate !== false && <TableHead>Applied Date</TableHead>}
+                  {visibleColumns.salary !== false && <TableHead>Expected Salary</TableHead>}
+                  {visibleColumns.rating !== false && <TableHead>Rating</TableHead>}
+                  {visibleColumns.lastUpdated !== false && <TableHead>Last Updated</TableHead>}
+                  {visibleColumns.cvLink !== false && <TableHead>CV Link</TableHead>}
                   <TableHead className="w-12">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8">
+                    <TableCell colSpan={2 + TABLE_COLUMNS.filter((c) => visibleColumns[c.id] !== false).length} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
                       <span className="ml-2 text-gray-500">Loading candidates...</span>
                     </TableCell>
@@ -529,50 +652,64 @@ export default function AdminDashboard() {
                           onCheckedChange={() => handleSelectCandidate(candidate.id)}
                         />
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-3">
-                          <Avatar className="w-8 h-8">
-                            <AvatarImage src="/placeholder-user.jpg" />
-                            <AvatarFallback>
-                              {candidate.name.split(" ").map((n) => n[0]).join("")}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <div className="font-medium">{candidate.name}</div>
-                            <div className="text-sm text-gray-500 flex items-center">
-                              <Phone className="w-3 h-3 mr-1" /> {candidate.phone}
+                      {visibleColumns.uid !== false && <TableCell className="font-mono text-sm">{candidate.id}</TableCell>}
+                      {visibleColumns.candidate !== false && (
+                        <TableCell>
+                          <div className="flex items-center space-x-3">
+                            <Avatar className="w-8 h-8">
+                              <AvatarImage src="/placeholder-user.jpg" />
+                              <AvatarFallback>
+                                {candidate.name.split(" ").map((n) => n[0]).join("")}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{candidate.name}</div>
+                              <div className="text-sm text-gray-500 flex items-center">
+                                <Phone className="w-3 h-3 mr-1" /> {candidate.phone}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{candidate.position}</TableCell>
-                      <TableCell>{getStatusBadge(candidate.status)}</TableCell>
-                      <TableCell>{candidate.experience}</TableCell>
-                      <TableCell>{candidate.location}</TableCell>
-                      <TableCell>{candidate.appliedDate}</TableCell>
-                      <TableCell>{candidate.salary}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <span className="text-yellow-500">★</span>
-                          <span className="ml-1 text-sm">{candidate.rating}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatLastUpdated(candidate.updatedAt)}
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const link = cvLinkByCandidateId(candidate.id)
-                          if (!link) return <span className="text-muted-foreground">—</span>
-                          const cvUrl = getCvLinkUrl(link.linkId)
-                          return (
-                            <div className="flex items-center gap-1">
-                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={cvUrl}>{cvUrl}</code>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(cvUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
-                            </div>
-                          )
-                        })()}
-                      </TableCell>
+                        </TableCell>
+                      )}
+                      {visibleColumns.position !== false && <TableCell>{candidate.position}</TableCell>}
+                      {visibleColumns.status !== false && <TableCell>{getStatusBadge(candidate.status)}</TableCell>}
+                      {visibleColumns.experience !== false && <TableCell>{candidate.experience}</TableCell>}
+                      {visibleColumns.location !== false && <TableCell>{candidate.location}</TableCell>}
+                      {visibleColumns.appliedDate !== false && <TableCell>{candidate.appliedDate}</TableCell>}
+                      {visibleColumns.salary !== false && <TableCell>{candidate.salary}</TableCell>}
+                      {visibleColumns.rating !== false && (
+                        <TableCell>
+                          <div className="flex items-center">
+                            <span className="text-yellow-500">★</span>
+                            <span className="ml-1 text-sm">{candidate.rating}</span>
+                          </div>
+                        </TableCell>
+                      )}
+                      {visibleColumns.lastUpdated !== false && (
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatLastUpdated(candidate.updatedAt)}
+                        </TableCell>
+                      )}
+                      {visibleColumns.cvLink !== false && (
+                        <TableCell>
+                          {(() => {
+                            const link = cvLinkByCandidateId(candidate.id)
+                            if (!link) return <span className="text-muted-foreground">—</span>
+                            const cvUrl = getCvLinkUrl(link.linkId)
+                            const justCopied = copiedCvLinkId === candidate.id
+                            return (
+                              <div className="flex items-center gap-1">
+                                <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={cvUrl}>{cvUrl}</code>
+                                {justCopied ? (
+                                  <span className="text-xs text-green-600 font-medium">Copied</span>
+                                ) : (
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(cvUrl, candidate.id)} title="Copy link"><Copy className="w-3 h-3" /></Button>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -600,6 +737,7 @@ export default function AdminDashboard() {
                                   status: candidate.status,
                                   location: candidate.location,
                                   salary: candidate.salary || "",
+                                  attachments: candidate.attachments || [],
                                 })
                                 setEditModalOpen(true)
                               }}
@@ -849,43 +987,47 @@ export default function AdminDashboard() {
             </DialogHeader>
             {viewDetailsCandidate && (
               <div className="mt-4 space-y-3 text-sm">
-                <p>
-                  <span className="font-medium">Phone:</span> {viewDetailsCandidate.phone}
-                </p>
-                <p>
-                  <span className="font-medium">Email:</span> {viewDetailsCandidate.email || "—"}
-                </p>
-                <p>
-                  <span className="font-medium">Position:</span> {viewDetailsCandidate.position}
-                </p>
-                <p>
-                  <span className="font-medium">Experience:</span> {viewDetailsCandidate.experience}
-                </p>
-                <p>
-                  <span className="font-medium">Location:</span> {viewDetailsCandidate.location}
-                </p>
-                <p>
-                  <span className="font-medium">Status:</span> {viewDetailsCandidate.status}
-                </p>
-                <p>
-                  <span className="font-medium">Resume:</span>{" "}
-                  {viewDetailsCandidate.resume ? (
-                    <a href={viewDetailsCandidate.resume.startsWith("/") ? viewDetailsCandidate.resume : viewDetailsCandidate.resume} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a>
-                  ) : (
-                    <span className="text-muted-foreground">Unavailable</span>
-                  )}
-                </p>
-                <p>
-                  <span className="font-medium">Resume last updated:</span>{" "}
-                  {viewDetailsCandidate.resumeUpdatedAt ? new Date(viewDetailsCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}
-                </p>
-                <p>
-                  <span className="font-medium">Applied:</span> {viewDetailsCandidate.appliedDate}
-                </p>
-                <p>
-                  <span className="font-medium">Last updated:</span>{" "}
-                  {viewDetailsCandidate.updatedAt ? new Date(viewDetailsCandidate.updatedAt).toLocaleString("en-IN") : "—"}
-                </p>
+                <p><span className="font-medium">Phone:</span> {viewDetailsCandidate.phone}</p>
+                <p><span className="font-medium">Email:</span> {viewDetailsCandidate.email || "—"}</p>
+                <p><span className="font-medium">Position:</span> {viewDetailsCandidate.position}</p>
+                <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience || "—"}</p>
+                <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
+                <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
+                {(() => {
+                  const att = viewDetailsCandidate.attachments || []
+                  const firstPath = viewDetailsCandidate.resume || (att[0] && att[0].path)
+                  const allFiles = att.length > 0 ? att : (viewDetailsCandidate.resume ? [{ path: viewDetailsCandidate.resume, name: "Resume" }] : [])
+                  return (
+                    <>
+                      <p><span className="font-medium">Resume:</span>{" "}
+                        {firstPath ? (
+                          <a href={firstPath.startsWith("http") ? firstPath : firstPath} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a>
+                        ) : (
+                          <span className="text-muted-foreground">Unavailable</span>
+                        )}
+                      </p>
+                      {allFiles.length > 1 && (
+                        <p><span className="font-medium">Attached files:</span>{" "}
+                          <span className="ml-2">
+                            {allFiles.map((f, i) => (
+                              <span key={i}>
+                                <a href={(f.path || "").startsWith("http") ? f.path : f.path} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">{f.name || `File ${i + 1}`}</a>
+                                {i < allFiles.length - 1 ? ", " : ""}
+                              </span>
+                            ))}
+                          </span>
+                        </p>
+                      )}
+                      <p><span className="font-medium">Resume last updated:</span>{" "}
+                        {viewDetailsCandidate.resumeUpdatedAt ? new Date(viewDetailsCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}
+                      </p>
+                      <p><span className="font-medium">Applied:</span> {viewDetailsCandidate.appliedDate}</p>
+                      <p><span className="font-medium">Last updated:</span>{" "}
+                        {viewDetailsCandidate.updatedAt ? new Date(viewDetailsCandidate.updatedAt).toLocaleString("en-IN") : "—"}
+                      </p>
+                    </>
+                  )
+                })()}
               </div>
             )}
           </DialogContent>
@@ -970,16 +1112,83 @@ export default function AdminDashboard() {
                   />
                 </div>
               </div>
-              {editCandidate && (
-                <div className="text-sm text-muted-foreground space-y-1">
-                  {editCandidate.resume ? (
-                    <p>Resume: <a href={editCandidate.resume.startsWith("/") ? editCandidate.resume : editCandidate.resume} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a></p>
-                  ) : (
-                    <p>Resume: Unavailable</p>
-                  )}
-                  <p>Resume last updated: {editCandidate.resumeUpdatedAt ? new Date(editCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}</p>
-                </div>
-              )}
+              <div>
+                <Label>Attached files</Label>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">Drag and drop or click to add. PDF, DOC, DOCX, or images (max 5MB). Order the list below.</p>
+                <label
+                  htmlFor="edit-attachments"
+                  className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-green-500") }}
+                  onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove("border-green-500") }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.currentTarget.classList.remove("border-green-500")
+                    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    if (files.length === 0) return
+                    files.forEach((file) => {
+                      const fd = new FormData()
+                      fd.append("file", file)
+                      fetch("/api/upload", { method: "POST", body: fd })
+                        .then((res) => res.ok ? res.json() : Promise.reject())
+                        .then(({ path, name }) => {
+                          setEditForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), { path, name, order: (prev.attachments || []).length }] }))
+                          toast.success(`${name} added`)
+                        })
+                        .catch(() => toast.error("Upload failed"))
+                    })
+                  }}
+                >
+                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max 5MB)</p>
+                </label>
+                <Input
+                  id="edit-attachments"
+                  type="file"
+                  accept=".pdf,.doc,.docx,image/jpeg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    e.target.value = ""
+                    files.forEach((file) => {
+                      const fd = new FormData()
+                      fd.append("file", file)
+                      fetch("/api/upload", { method: "POST", body: fd })
+                        .then((res) => res.ok ? res.json() : Promise.reject())
+                        .then(({ path, name }) => {
+                          setEditForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), { path, name, order: (prev.attachments || []).length }] }))
+                          toast.success(`${name} added`)
+                        })
+                        .catch(() => toast.error("Upload failed"))
+                    })
+                  }}
+                />
+                {(editForm.attachments || []).length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {(editForm.attachments || []).map((a, idx) => (
+                      <li key={idx} className="flex items-center gap-2 p-2 rounded border bg-muted/50">
+                        <span className="text-sm truncate flex-1 font-medium">{a.name}</span>
+                        <div className="flex gap-1 shrink-0">
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => {
+                            const list = [...(editForm.attachments || [])]
+                            if (idx === 0) return
+                            ;[list[idx - 1], list[idx]] = [list[idx], list[idx - 1]]
+                            setEditForm((prev) => ({ ...prev, attachments: list }))
+                          }} disabled={idx === 0}>↑</Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => {
+                            const list = [...(editForm.attachments || [])]
+                            if (idx === list.length - 1) return
+                            ;[list[idx], list[idx + 1]] = [list[idx + 1], list[idx]]
+                            setEditForm((prev) => ({ ...prev, attachments: list }))
+                          }} disabled={idx === (editForm.attachments?.length || 0) - 1}>↓</Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600" onClick={() => setEditForm((prev) => ({ ...prev, attachments: (prev.attachments || []).filter((_, i) => i !== idx) }))}><Trash2 className="w-4 h-4" /></Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setEditModalOpen(false)}>
                   Cancel
