@@ -28,24 +28,12 @@ export async function GET(request, { params }) {
   }
 }
 
-async function getVendorSession(request) {
-  const auth = request.headers.get("authorization")?.replace("Bearer ", "")
-  if (!auth) return null
-  return prisma.session.findFirst({
-    where: { sessionToken: auth, expiresAt: { gt: new Date() } },
-    include: { adminUser: true },
-  })
-}
-
 export async function POST(request, { params }) {
   try {
     const { id: rawId } = await params
     const id = parseInt(rawId)
     if (isNaN(id)) return NextResponse.json({ error: "Invalid candidate id" }, { status: 400 })
     if (!scheduleModel) return NextResponse.json({ error: "InterviewSchedule model not available" }, { status: 500 })
-
-    const session = await getVendorSession(request)
-    const taggedByAdminUserId = session?.adminUserId ?? null
 
     const body = await request.json()
     const { slots } = body
@@ -66,7 +54,6 @@ export async function POST(request, { params }) {
           type: type || null,
           status: status || null,
           remarks: remarks || null,
-          taggedByAdminUserId,
         },
         include: { outlet: true },
       })

@@ -346,9 +346,10 @@ export default function ViewApplicantsPage() {
     toast.success("CV link copied – included in Copy all")
   }
 
-  const buildShareText = (cvLinksOverride) => {
+  const buildShareText = (cvLinksOverride, schedulesOverride) => {
     if (!shareInfoCandidate) return ""
     const c = shareInfoCandidate
+    const schedules = schedulesOverride !== undefined ? schedulesOverride : shareInfoSchedules
     const lines = []
     if (shareInfoFields.name) lines.push(`Name: ${c.name}`)
     if (shareInfoFields.phone) lines.push(`Phone: ${c.phone}`)
@@ -364,8 +365,8 @@ export default function ViewApplicantsPage() {
       const cvUrl = link ? getCvLinkUrl(link.linkId) : "—"
       lines.push(`CV Link: ${cvUrl}`)
     }
-    if (shareInfoFields.interview && shareInfoSchedules.length > 0) {
-      const next = shareInfoSchedules[0]
+    if (shareInfoFields.interview && schedules.length > 0) {
+      const next = schedules[0]
       const dt = next.scheduledAt ? new Date(next.scheduledAt) : null
       const dateStr = dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}` : ""
       const timeStr = dt ? `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` : ""
@@ -374,7 +375,7 @@ export default function ViewApplicantsPage() {
     const introRaw = (shareInfoIntro ?? "").trim()
     if (introRaw) {
       let intro = introRaw
-      const nextSchedule = shareInfoSchedules[0]
+      const nextSchedule = schedules[0]
       const dt = nextSchedule?.scheduledAt ? new Date(nextSchedule.scheduledAt) : null
       const dateStr = dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}` : ""
       const timeStr = dt ? `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` : ""
@@ -394,7 +395,22 @@ export default function ViewApplicantsPage() {
         // continue – buildShareText will show "—" for CV Link
       }
     }
-    return buildShareText(linksList ?? undefined)
+    // Refetch schedules when copying so {{interviewDate}}/{{interviewTime}} use latest data
+    let schedulesForCopy = []
+    if (shareInfoCandidate) {
+      try {
+        const res = await fetch(`/api/candidates/${shareInfoCandidate.id}/schedules`)
+        if (res.ok) {
+          const list = await res.json()
+          const arr = Array.isArray(list) ? list : []
+          const withDate = arr.filter((s) => s && s.scheduledAt)
+          const now = new Date()
+          const upcoming = withDate.filter((s) => new Date(s.scheduledAt) >= now).sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+          schedulesForCopy = upcoming.length > 0 ? upcoming : withDate.slice().sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt)).slice(0, 1)
+        }
+      } catch (_) {}
+    }
+    return buildShareText(linksList ?? undefined, schedulesForCopy)
   }
 
   const saveShareIntro = async () => {

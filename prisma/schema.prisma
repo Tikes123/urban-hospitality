@@ -161,12 +161,10 @@ model InterviewSchedule {
   type                 String?   // e.g. "Phone", "In-person", "Video"
   status               String?   // same status list as candidates (standby-cv, waiting-for-call-back, etc.)
   remarks              String?   @db.Text
-  taggedByAdminUserId  Int?      // vendor/HR who scheduled (tagged) this
   createdAt            DateTime  @default(now())
 
   candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   outlet      Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  taggedBy    AdminUser? @relation(fields: [taggedByAdminUserId], references: [id], onDelete: SetNull)
 
   @@map("interview_schedules")
 }
@@ -237,7 +235,6 @@ model AdminUser {
   hrList       Hr[]
   menuPermissions AdminUserMenuPermission[]
   customLocations CustomLocation[]
-  interviewSchedulesTagged InterviewSchedule[]
 
   @@map("admin_users")
 }
