@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
 import { CANDIDATE_STATUSES, getStatusInfo, getStatusBadgeClass } from "@/lib/statusConfig"
+import { getCvLinkUrl } from "@/lib/baseUrl"
 
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
@@ -138,7 +139,7 @@ export default function AdminDashboard() {
     }
   }
 
-  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id)
+  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id && l.status === "active")
 
   const handleActivateCvLink = async (candidate) => {
     const existing = cvLinkByCandidateId(candidate.id)
@@ -157,10 +158,9 @@ export default function AdminDashboard() {
         toast.success("CV link activated")
       } else {
         const linkId = `cv-${candidate.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`
-        const shortUrl = `https://uhs.link/${linkId}`
-        const fullUrl = `https://urbanhospitality.com/cv/${linkId}`
+        const cvUrl = getCvLinkUrl(linkId)
         const expiryDate = new Date()
-        expiryDate.setFullYear(expiryDate.getFullYear() + 1)
+        expiryDate.setDate(expiryDate.getDate() + 3)
         const res = await fetch("/api/cv-links", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -169,8 +169,8 @@ export default function AdminDashboard() {
             candidateName: candidate.name,
             position: candidate.position,
             linkId,
-            shortUrl,
-            fullUrl,
+            shortUrl: cvUrl,
+            fullUrl: cvUrl,
             expiryDate: expiryDate.toISOString().split("T")[0],
             sharedWith: [],
           }),
@@ -564,10 +564,11 @@ export default function AdminDashboard() {
                         {(() => {
                           const link = cvLinkByCandidateId(candidate.id)
                           if (!link) return <span className="text-muted-foreground">—</span>
+                          const cvUrl = getCvLinkUrl(link.linkId)
                           return (
                             <div className="flex items-center gap-1">
-                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={link.shortUrl}>{link.shortUrl}</code>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(link.shortUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
+                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={cvUrl}>{cvUrl}</code>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(cvUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
                             </div>
                           )
                         })()}

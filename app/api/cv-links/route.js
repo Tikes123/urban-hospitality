@@ -32,10 +32,17 @@ export async function GET(request) {
   }
 }
 
+function getBaseUrl() {
+  return process.env.NEXT_PUBLIC_BASE_URL || process.env.BASE_URL || "http://localhost:3000"
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
     const { candidateId, candidateName, position, linkId, shortUrl, fullUrl, expiryDate, sharedWith } = body
+    const baseUrl = getBaseUrl().replace(/\/$/, "")
+    const resolvedShortUrl = shortUrl || (linkId ? `${baseUrl}/cv/${linkId}` : "")
+    const resolvedFullUrl = fullUrl || resolvedShortUrl
 
     const cvLink = await prisma.cVLink.create({
       data: {
@@ -43,8 +50,8 @@ export async function POST(request) {
         candidateName,
         position,
         linkId,
-        shortUrl,
-        fullUrl,
+        shortUrl: resolvedShortUrl,
+        fullUrl: resolvedFullUrl,
         expiryDate: new Date(expiryDate),
         status: "active",
         views: 0,

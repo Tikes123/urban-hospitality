@@ -12,7 +12,10 @@ export async function GET(request, { params }) {
     if (!cvLink) return NextResponse.json({ error: "CV link not found" }, { status: 404 })
     if (cvLink.status !== "active") return NextResponse.json({ error: "This link is not active" }, { status: 403 })
     const now = new Date()
-    if (new Date(cvLink.expiryDate) < now) return NextResponse.json({ error: "This link has expired" }, { status: 410 })
+    if (new Date(cvLink.expiryDate) < now) {
+      await prisma.cVLink.update({ where: { id: cvLink.id }, data: { status: "expired" } })
+      return NextResponse.json({ error: "This link has expired" }, { status: 410 })
+    }
     const candidate = cvLink.candidate
     const attachments = candidate.attachments ? (typeof candidate.attachments === "string" ? JSON.parse(candidate.attachments) : candidate.attachments) : []
     const files = []

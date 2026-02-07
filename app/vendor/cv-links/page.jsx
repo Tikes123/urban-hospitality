@@ -35,6 +35,7 @@ import {
   Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { getCvLinkUrl } from "@/lib/baseUrl"
 
 export default function CVLinksPage() {
   const [cvLinks, setCvLinks] = useState([])
@@ -102,17 +103,16 @@ export default function CVLinksPage() {
         return
       }
 
-      const linkId = formData.linkId || `cv-${selectedCandidate.name.toLowerCase().replace(/\s+/g, "-")}-${new Date().getFullYear()}`
-      const shortUrl = `https://uhs.link/${linkId}`
-      const fullUrl = `https://urbanhospitality.com/cv/${linkId}`
+      const linkId = formData.linkId || `cv-${selectedCandidate.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`
+      const cvUrl = getCvLinkUrl(linkId)
 
       const cvLinkData = {
         candidateId: parseInt(formData.candidateId),
         candidateName: selectedCandidate.name,
         position: selectedCandidate.position,
         linkId,
-        shortUrl,
-        fullUrl,
+        shortUrl: cvUrl,
+        fullUrl: cvUrl,
         expiryDate: formData.expiryDate,
         sharedWith: formData.sharedWith.split(",").map((s) => s.trim()).filter(Boolean),
       }
@@ -418,8 +418,8 @@ export default function CVLinksPage() {
                       <TableCell>
                         <div className="space-y-1">
                           <div className="flex items-center space-x-2">
-                            <code className="text-sm bg-gray-100 px-2 py-1 rounded">{link.shortUrl}</code>
-                            <Button variant="ghost" size="sm" onClick={() => copyToClipboard(link.shortUrl)}>
+                            <code className="text-sm bg-gray-100 px-2 py-1 rounded">{getCvLinkUrl(link.linkId)}</code>
+                            <Button variant="ghost" size="sm" onClick={() => copyToClipboard(getCvLinkUrl(link.linkId))}>
                               <Copy className="w-3 h-3" />
                             </Button>
                           </div>
@@ -471,11 +471,11 @@ export default function CVLinksPage() {
                               <Eye className="w-4 h-4 mr-2" />
                               View details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => copyToClipboard(link.shortUrl)}>
+                            <DropdownMenuItem onClick={() => copyToClipboard(getCvLinkUrl(link.linkId))}>
                               <Copy className="w-4 h-4 mr-2" />
                               Copy Link
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => window.open(link.fullUrl, "_blank")}>
+                            <DropdownMenuItem onClick={() => window.open(getCvLinkUrl(link.linkId), "_blank")}>
                               <ExternalLink className="w-4 h-4 mr-2" />
                               Open Link
                             </DropdownMenuItem>
@@ -518,15 +518,8 @@ export default function CVLinksPage() {
                 <div>
                   <Label className="text-muted-foreground">Short URL</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <code className="text-sm bg-muted px-2 py-1 rounded flex-1 truncate">{viewModalLink.shortUrl}</code>
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(viewModalLink.shortUrl)}><Copy className="w-4 h-4" /></Button>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Full URL</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <code className="text-sm bg-muted px-2 py-1 rounded flex-1 truncate">{viewModalLink.fullUrl}</code>
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(viewModalLink.fullUrl)}><Copy className="w-4 h-4" /></Button>
+                    <code className="text-sm bg-muted px-2 py-1 rounded flex-1 truncate">{getCvLinkUrl(viewModalLink.linkId)}</code>
+                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(getCvLinkUrl(viewModalLink.linkId))}><Copy className="w-4 h-4" /></Button>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
@@ -534,10 +527,10 @@ export default function CVLinksPage() {
                   {getStatusBadge(viewModalLink.status)}
                 </div>
                 <div className="flex gap-2 pt-2">
-                  <Button variant="outline" size="sm" onClick={() => window.open(viewModalLink.fullUrl, "_blank")}>
+                  <Button variant="outline" size="sm" onClick={() => window.open(getCvLinkUrl(viewModalLink.linkId), "_blank")}>
                     <ExternalLink className="w-4 h-4 mr-2" /> Open link
                   </Button>
-                  <Button size="sm" onClick={() => { copyToClipboard(viewModalLink.shortUrl); setViewModalLink(null) }}><Copy className="w-4 h-4 mr-2" /> Copy & close</Button>
+                  <Button size="sm" onClick={() => { copyToClipboard(getCvLinkUrl(viewModalLink.linkId)); setViewModalLink(null) }}><Copy className="w-4 h-4 mr-2" /> Copy & close</Button>
                 </div>
               </div>
             )}

@@ -45,6 +45,7 @@ import {
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
 import { CANDIDATE_STATUSES, getStatusInfo, getStatusBadgeClass } from "@/lib/statusConfig"
+import { getCvLinkUrl } from "@/lib/baseUrl"
 
 const initialAddForm = {
   name: "",
@@ -133,7 +134,7 @@ export default function ViewApplicantsPage() {
     }
   }
 
-  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id)
+  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id && l.status === "active")
 
   const handleActivateCvLink = async (candidate) => {
     const existing = cvLinkByCandidateId(candidate.id)
@@ -152,10 +153,9 @@ export default function ViewApplicantsPage() {
         toast.success("CV link activated")
       } else {
         const linkId = `cv-${candidate.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`
-        const shortUrl = `https://uhs.link/${linkId}`
-        const fullUrl = `https://urbanhospitality.com/cv/${linkId}`
+        const cvUrl = getCvLinkUrl(linkId)
         const expiryDate = new Date()
-        expiryDate.setFullYear(expiryDate.getFullYear() + 1)
+        expiryDate.setDate(expiryDate.getDate() + 3)
         const res = await fetch("/api/cv-links", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -164,8 +164,8 @@ export default function ViewApplicantsPage() {
             candidateName: candidate.name,
             position: candidate.position,
             linkId,
-            shortUrl,
-            fullUrl,
+            shortUrl: cvUrl,
+            fullUrl: cvUrl,
             expiryDate: expiryDate.toISOString().split("T")[0],
             sharedWith: [],
           }),
@@ -818,14 +818,35 @@ export default function ViewApplicantsPage() {
                 <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience}</p>
                 <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
                 <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
-                <p><span className="font-medium">Resume:</span> {viewDetailsCandidate.resume ? (
-                  <a href={viewDetailsCandidate.resume.startsWith("/") ? viewDetailsCandidate.resume : viewDetailsCandidate.resume} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a>
-                ) : (
-                  <span className="text-muted-foreground">Unavailable</span>
-                )}</p>
-                <p><span className="font-medium">Resume last updated:</span> {viewDetailsCandidate.resumeUpdatedAt ? new Date(viewDetailsCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}</p>
-                <p><span className="font-medium">Applied:</span> {viewDetailsCandidate.appliedDate}</p>
-                <p><span className="font-medium">Last updated:</span> {viewDetailsCandidate.updatedAt ? new Date(viewDetailsCandidate.updatedAt).toLocaleString("en-IN") : "—"}</p>
+                {(() => {
+                  const att = viewDetailsCandidate.attachments || []
+                  const firstPath = viewDetailsCandidate.resume || (att[0] && att[0].path)
+                  const allFiles = att.length > 0 ? att : (viewDetailsCandidate.resume ? [{ path: viewDetailsCandidate.resume, name: "Resume" }] : [])
+                  return (
+                    <>
+                      <p><span className="font-medium">Resume:</span> {firstPath ? (
+                        <a href={firstPath.startsWith("http") ? firstPath : firstPath} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a>
+                      ) : (
+                        <span className="text-muted-foreground">Unavailable</span>
+                      )}</p>
+                      {allFiles.length > 1 && (
+                        <p><span className="font-medium">Attached files:</span>
+                          <span className="ml-2">
+                            {allFiles.map((f, i) => (
+                              <span key={i}>
+                                <a href={(f.path || "").startsWith("http") ? f.path : f.path} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">{f.name || `File ${i + 1}`}</a>
+                                {i < allFiles.length - 1 ? ", " : ""}
+                              </span>
+                            ))}
+                          </span>
+                        </p>
+                      )}
+                      <p><span className="font-medium">Resume last updated:</span> {viewDetailsCandidate.resumeUpdatedAt ? new Date(viewDetailsCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}</p>
+                      <p><span className="font-medium">Applied:</span> {viewDetailsCandidate.appliedDate}</p>
+                      <p><span className="font-medium">Last updated:</span> {viewDetailsCandidate.updatedAt ? new Date(viewDetailsCandidate.updatedAt).toLocaleString("en-IN") : "—"}</p>
+                    </>
+                  )
+                })()}
               </div>
             )}
           </DialogContent>
@@ -1191,10 +1212,11 @@ export default function ViewApplicantsPage() {
                         {(() => {
                           const link = cvLinkByCandidateId(candidate.id)
                           if (!link) return <span className="text-muted-foreground">—</span>
+                          const cvUrl = getCvLinkUrl(link.linkId)
                           return (
                             <div className="flex items-center gap-1">
-                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={link.shortUrl}>{link.shortUrl}</code>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(link.shortUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
+                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={cvUrl}>{cvUrl}</code>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(cvUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
                             </div>
                           )
                         })()}

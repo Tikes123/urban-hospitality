@@ -54,8 +54,10 @@ export async function PUT(request, { params }) {
       updateData.resumeUpdatedAt = new Date()
     }
     if (body.attachments !== undefined) {
-      updateData.attachments = typeof body.attachments === "string" ? body.attachments : JSON.stringify(Array.isArray(body.attachments) ? body.attachments : [])
+      const arr = Array.isArray(body.attachments) ? body.attachments : (typeof body.attachments === "string" ? JSON.parse(body.attachments || "[]") : [])
+      updateData.attachments = typeof body.attachments === "string" ? body.attachments : JSON.stringify(arr)
       updateData.resumeUpdatedAt = new Date()
+      if (arr.length > 0 && arr[0].path) updateData.resume = arr[0].path
     }
 
     const candidate = await prisma.candidate.update({
