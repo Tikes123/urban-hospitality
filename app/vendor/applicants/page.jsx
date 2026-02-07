@@ -339,8 +339,6 @@ export default function ViewApplicantsPage() {
     if (!shareInfoCandidate) return ""
     const c = shareInfoCandidate
     const lines = []
-    const intro = (shareInfoIntro ?? "").trim()
-    if (intro) lines.push(intro, "")
     if (shareInfoFields.name) lines.push(`Name: ${c.name}`)
     if (shareInfoFields.phone) lines.push(`Phone: ${c.phone}`)
     if (shareInfoFields.email) lines.push(`Email: ${c.email || "—"}`)
@@ -361,6 +359,16 @@ export default function ViewApplicantsPage() {
       const dateStr = dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}` : ""
       const timeStr = dt ? `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` : ""
       lines.push(`Above candidate will be coming for Interview on ${dateStr} at ${timeStr}, Please share the feedback once the interview is done.`)
+    }
+    const introRaw = (shareInfoIntro ?? "").trim()
+    if (introRaw) {
+      let intro = introRaw
+      const nextSchedule = shareInfoSchedules[0]
+      const dt = nextSchedule?.scheduledAt ? new Date(nextSchedule.scheduledAt) : null
+      const dateStr = dt ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}` : ""
+      const timeStr = dt ? `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` : ""
+      intro = intro.replace(/\{\{interviewDate\}\}/gi, dateStr).replace(/\{\{interviewTime\}\}/gi, timeStr).replace(/\{\{interviewDateTime\}\}/gi, dateStr && timeStr ? `${dateStr} at ${timeStr}` : intro)
+      lines.push("", intro)
     }
     return lines.join("\n")
   }
@@ -1106,23 +1114,27 @@ export default function ViewApplicantsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Outlet</TableHead>
-                          <TableHead>Date & Time</TableHead>
-                          <TableHead>Type</TableHead>
+                          <TableHead className="w-12">S.No</TableHead>
+                          <TableHead>Outlets</TableHead>
+                          <TableHead>Interview date</TableHead>
+                          <TableHead>Tag date & time</TableHead>
+                          <TableHead>Remark</TableHead>
+                          <TableHead>Tagged by</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead>Remarks</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {historySchedules
                           .slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
-                          .map((s) => (
+                          .map((s, idx) => (
                           <TableRow key={s.id}>
+                            <TableCell className="font-mono">{(historyPage - 1) * HISTORY_PAGE_SIZE + idx + 1}</TableCell>
                             <TableCell>{s.outlet?.name ?? "—"}</TableCell>
                             <TableCell>{s.scheduledAt ? new Date(s.scheduledAt).toLocaleString("en-IN") : "—"}</TableCell>
-                            <TableCell>{s.type ?? "—"}</TableCell>
-                            <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
+                            <TableCell>{s.createdAt ? new Date(s.createdAt).toLocaleString("en-IN") : "—"}</TableCell>
                             <TableCell>{s.remarks ?? "—"}</TableCell>
+                            <TableCell>{s.taggedBy?.name || s.taggedBy?.email || "—"}</TableCell>
+                            <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1161,10 +1173,10 @@ export default function ViewApplicantsPage() {
               <div className="mt-4 space-y-4">
                 <div>
                   <Label htmlFor="share-intro">Highlight / Intro</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Editable intro text – included at the top when you Copy all. Save to keep for this candidate.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Editable text – included at the bottom when you Copy all. Use {"{{interviewDate}}"} and {"{{interviewTime}}"} for auto date/time from next interview. Save to keep for this candidate.</p>
                   <Textarea
                     id="share-intro"
-                    placeholder="e.g. Strong candidate for Sous Chef role, 5+ years in fine dining..."
+                    placeholder="e.g. Above candidate will be coming for Interview on {{interviewDate}} at {{interviewTime}}, Please share the feedback once the interview is done."
                     value={shareInfoIntro}
                     onChange={(e) => setShareInfoIntro(e.target.value)}
                     className="mt-2 min-h-[80px] resize-y"

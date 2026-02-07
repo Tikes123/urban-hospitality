@@ -4,7 +4,7 @@ import { use, useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { FileText, Download, Image, Loader2, ExternalLink } from "lucide-react"
+import { FileText, Image, Loader2, ExternalLink } from "lucide-react"
 
 export default function PublicCVPage({ params }) {
   const { linkId } = typeof params?.then === "function" ? use(params) : (params || {})
@@ -96,11 +96,6 @@ export default function PublicCVPage({ params }) {
                       <Button variant="outline" size="sm" asChild>
                         <a href={file.path.startsWith("http") ? file.path : file.path} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="w-4 h-4 mr-1" /> View
-                        </a>
-                      </Button>
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={file.path.startsWith("http") ? file.path : file.path} download>
-                          <Download className="w-4 h-4 mr-1" /> Download
                         </a>
                       </Button>
                     </div>

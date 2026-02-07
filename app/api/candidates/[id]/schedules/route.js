@@ -12,7 +12,7 @@ export async function GET(request, { params }) {
 
     const schedules = await scheduleModel.findMany({
       where: { candidateId: id },
-      include: { outlet: true },
+      include: { outlet: true, taggedBy: true },
       orderBy: { scheduledAt: "desc" },
     })
 
@@ -20,11 +20,21 @@ export async function GET(request, { params }) {
       ...s,
       scheduledAt: s.scheduledAt.toISOString(),
       createdAt: s.createdAt.toISOString(),
+      taggedBy: s.taggedBy ? { id: s.taggedBy.id, name: s.taggedBy.name, email: s.taggedBy.email } : null,
     })))
   } catch (error) {
     console.error("Error fetching schedules:", error)
     return NextResponse.json({ error: "Failed to fetch schedules" }, { status: 500 })
   }
+}
+
+async function getVendorSession(request) {
+  const auth = request.headers.get("authorization")?.replace("Bearer ", "")
+  if (!auth) return null
+  return prisma.session.findFirst({
+    where: { sessionToken: auth, expiresAt: { gt: new Date() } },
+    include: { adminUser: true },
+  })
 }
 
 export async function POST(request, { params }) {
@@ -33,6 +43,9 @@ export async function POST(request, { params }) {
     const id = parseInt(rawId)
     if (isNaN(id)) return NextResponse.json({ error: "Invalid candidate id" }, { status: 400 })
     if (!scheduleModel) return NextResponse.json({ error: "InterviewSchedule model not available" }, { status: 500 })
+
+    const session = await getVendorSession(request)
+    const taggedByAdminUserId = session?.adminUserId ?? null
 
     const body = await request.json()
     const { slots } = body
@@ -53,13 +66,15 @@ export async function POST(request, { params }) {
           type: type || null,
           status: status || null,
           remarks: remarks || null,
+          taggedByAdminUserId,
         },
-        include: { outlet: true },
+        include: { outlet: true, taggedBy: true },
       })
       created.push({
         ...schedule,
         scheduledAt: schedule.scheduledAt.toISOString(),
         createdAt: schedule.createdAt.toISOString(),
+        taggedBy: schedule.taggedBy ? { id: schedule.taggedBy.id, name: schedule.taggedBy.name, email: schedule.taggedBy.email } : null,
       })
     }
 

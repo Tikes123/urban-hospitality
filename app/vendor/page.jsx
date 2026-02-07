@@ -933,25 +933,27 @@ export default function AdminDashboard() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Outlet</TableHead>
-                          <TableHead>Date & Time</TableHead>
-                          <TableHead>Type</TableHead>
+                          <TableHead className="w-12">S.No</TableHead>
+                          <TableHead>Outlets</TableHead>
+                          <TableHead>Interview date</TableHead>
+                          <TableHead>Tag date & time</TableHead>
+                          <TableHead>Remark</TableHead>
+                          <TableHead>Tagged by</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead>Remarks</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {historySchedules
                           .slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
-                          .map((s) => (
+                          .map((s, idx) => (
                           <TableRow key={s.id}>
+                            <TableCell className="font-mono">{(historyPage - 1) * HISTORY_PAGE_SIZE + idx + 1}</TableCell>
                             <TableCell>{s.outlet?.name ?? "—"}</TableCell>
-                            <TableCell>
-                              {s.scheduledAt ? new Date(s.scheduledAt).toLocaleString("en-IN") : "—"}
-                            </TableCell>
-                            <TableCell>{s.type ?? "—"}</TableCell>
-                            <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
+                            <TableCell>{s.scheduledAt ? new Date(s.scheduledAt).toLocaleString("en-IN") : "—"}</TableCell>
+                            <TableCell>{s.createdAt ? new Date(s.createdAt).toLocaleString("en-IN") : "—"}</TableCell>
                             <TableCell>{s.remarks ?? "—"}</TableCell>
+                            <TableCell>{s.taggedBy?.name || s.taggedBy?.email || "—"}</TableCell>
+                            <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
