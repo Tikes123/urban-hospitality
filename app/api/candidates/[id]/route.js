@@ -17,6 +17,7 @@ export async function GET(request, { params }) {
       appliedDate: candidate.appliedDate.toISOString().split("T")[0],
       resumeUpdatedAt: candidate.resumeUpdatedAt?.toISOString() ?? null,
       updatedAt: candidate.updatedAt?.toISOString() ?? null,
+      attachments: candidate.attachments ? (typeof candidate.attachments === "string" ? JSON.parse(candidate.attachments) : candidate.attachments) : [],
     })
   } catch (error) {
     console.error("Error fetching candidate:", error)
@@ -30,7 +31,7 @@ export async function PUT(request, { params }) {
     const id = parseInt(rawId)
     const body = await request.json()
     const updateData = {}
-    const fields = ["name", "email", "phone", "position", "designationId", "experience", "location", "availability", "salary", "skills", "education", "previousEmployer", "references", "notes", "status", "source", "rating", "resume"]
+    const fields = ["name", "email", "phone", "position", "designationId", "experience", "location", "availability", "salary", "skills", "education", "previousEmployer", "references", "notes", "status", "source", "rating", "resume", "attachments"]
     if (body.name !== undefined) updateData.name = body.name
     if (body.email !== undefined) updateData.email = body.email || null
     if (body.phone !== undefined) updateData.phone = body.phone
@@ -52,6 +53,10 @@ export async function PUT(request, { params }) {
       updateData.resume = body.resume
       updateData.resumeUpdatedAt = new Date()
     }
+    if (body.attachments !== undefined) {
+      updateData.attachments = typeof body.attachments === "string" ? body.attachments : JSON.stringify(Array.isArray(body.attachments) ? body.attachments : [])
+      updateData.resumeUpdatedAt = new Date()
+    }
 
     const candidate = await prisma.candidate.update({
       where: { id },
@@ -63,6 +68,7 @@ export async function PUT(request, { params }) {
       appliedDate: candidate.appliedDate.toISOString().split("T")[0],
       resumeUpdatedAt: candidate.resumeUpdatedAt?.toISOString() ?? null,
       updatedAt: candidate.updatedAt?.toISOString() ?? null,
+      attachments: candidate.attachments ? (typeof candidate.attachments === "string" ? JSON.parse(candidate.attachments) : candidate.attachments) : [],
     })
   } catch (error) {
     console.error("Error updating candidate:", error)

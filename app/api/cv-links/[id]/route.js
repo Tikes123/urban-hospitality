@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma"
 
 export async function GET(request, { params }) {
   try {
-    const id = parseInt(params.id)
+    const { id: idParam } = await params
+    const id = parseInt(idParam)
     const cvLink = await prisma.cVLink.findUnique({
       where: { id },
       include: { candidate: true },
@@ -24,7 +25,8 @@ export async function GET(request, { params }) {
 
 export async function PUT(request, { params }) {
   try {
-    const id = parseInt(params.id)
+    const { id: idParam } = await params
+    const id = parseInt(idParam)
     const body = await request.json()
     const updateData = {}
     if (body.status !== undefined) updateData.status = body.status
@@ -55,7 +57,8 @@ export async function PUT(request, { params }) {
 
 export async function DELETE(request, { params }) {
   try {
-    const id = parseInt(params.id)
+    const { id: idParam } = await params
+    const id = parseInt(idParam)
     await prisma.cVLink.delete({ where: { id } })
     return NextResponse.json({ message: "CV link deleted successfully" })
   } catch (error) {

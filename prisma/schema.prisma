@@ -114,7 +114,8 @@ model Candidate {
   source        String?   // Website, Referral, Job Board, Social Media
   rating        Float?
   appliedDate   DateTime  @default(now())
-  resume        String?   // File path or URL
+  resume        String?   // File path or URL (primary/legacy)
+  attachments  String?   @db.Text // JSON array: [{ path, name, order }] for multiple files (PDF, images)
   resumeUpdatedAt DateTime? // when resume was last uploaded/updated
   addedBy       String?   // legacy: who added (string)
   addedByHrId   Int?      // which HR (vendor employee) added this candidate

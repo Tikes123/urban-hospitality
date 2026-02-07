@@ -7,8 +7,12 @@ function parseBody(body) {
   const {
     name, email, phone, position, designationId, experience, location,
     availability, salary, skills, education, previousEmployer, references,
-    notes, status, source, rating, resume,
+    notes, status, source, rating, resume, attachments,
   } = body
+  let attachmentsStr = null
+  if (attachments != null) {
+    attachmentsStr = typeof attachments === "string" ? attachments : JSON.stringify(Array.isArray(attachments) ? attachments : [])
+  }
   return {
     name: name || "",
     email: email || null,
@@ -28,6 +32,7 @@ function parseBody(body) {
     source: source || null,
     rating: rating ? parseFloat(rating) : null,
     resume: resume || null,
+    attachments: attachmentsStr,
   }
 }
 
@@ -97,6 +102,7 @@ export async function GET(request) {
       createdAt: candidate.createdAt.toISOString(),
       updatedAt: candidate.updatedAt.toISOString(),
       resumeUpdatedAt: candidate.resumeUpdatedAt?.toISOString() ?? null,
+      attachments: candidate.attachments ? (typeof candidate.attachments === "string" ? JSON.parse(candidate.attachments) : candidate.attachments) : [],
     }))
 
     return NextResponse.json({ data, total, page, limit, totalPages })
@@ -114,20 +120,26 @@ export async function POST(request) {
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData()
       const body = {}
+      const attachmentFiles = formData.getAll("attachments").filter((v) => v instanceof File && v.size > 0)
+      const dir = path.join(process.cwd(), "public", "uploads", "resumes")
+      await mkdir(dir, { recursive: true })
+      const uploadedPaths = []
+      for (let i = 0; i < attachmentFiles.length; i++) {
+        const value = attachmentFiles[i]
+        const ext = path.extname(value.name) || ".pdf"
+        const filename = `${Date.now()}-${i}-${value.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
+        const filepath = path.join(dir, filename)
+        const buf = Buffer.from(await value.arrayBuffer())
+        await writeFile(filepath, buf)
+        uploadedPaths.push({ path: `/uploads/resumes/${filename}`, name: value.name, order: i })
+      }
       for (const [key, value] of formData.entries()) {
-        if (value instanceof File) {
-          if (value.size === 0) continue
-          const dir = path.join(process.cwd(), "public", "uploads", "resumes")
-          await mkdir(dir, { recursive: true })
-          const ext = path.extname(value.name) || ".pdf"
-          const filename = `${Date.now()}-${value.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
-          const filepath = path.join(dir, filename)
-          const buf = Buffer.from(await value.arrayBuffer())
-          await writeFile(filepath, buf)
-          body.resume = `/uploads/resumes/${filename}`
-        } else {
-          body[key] = value
-        }
+        if (value instanceof File) continue
+        body[key] = value
+      }
+      if (uploadedPaths.length > 0) {
+        body.attachments = JSON.stringify(uploadedPaths)
+        if (!body.resume) body.resume = uploadedPaths[0].path
       }
       data = parseBody(body)
     } else {
@@ -139,7 +151,7 @@ export async function POST(request) {
       ...data,
       designationId: data.designationId || null,
     }
-    if (createData.resume) createData.resumeUpdatedAt = new Date()
+    if (createData.resume || createData.attachments) createData.resumeUpdatedAt = new Date()
 
     const auth = request.headers.get("authorization")?.replace("Bearer ", "")
     if (auth) {

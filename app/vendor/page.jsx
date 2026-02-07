@@ -34,6 +34,8 @@ import {
   Users,
   UserCheck,
   BarChart3,
+  Link2,
+  Copy,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
@@ -68,9 +70,11 @@ export default function AdminDashboard() {
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [todayStats, setTodayStats] = useState({ candidatesAddedToday: 0, interviewsScheduledToday: 0, hiredToday: 0 })
   const [todayStatsLoading, setTodayStatsLoading] = useState(true)
+  const [cvLinks, setCvLinks] = useState([])
 
   useEffect(() => {
     fetchOutlets()
+    fetchCvLinks()
   }, [])
 
   useEffect(() => {
@@ -121,6 +125,88 @@ export default function AdminDashboard() {
     } catch (e) {
       console.error("Failed to fetch outlets", e)
     }
+  }
+
+  const fetchCvLinks = async () => {
+    try {
+      const res = await fetch("/api/cv-links")
+      if (!res.ok) return
+      const data = await res.json()
+      setCvLinks(Array.isArray(data) ? data : [])
+    } catch (e) {
+      console.error("Failed to fetch CV links", e)
+    }
+  }
+
+  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id)
+
+  const handleActivateCvLink = async (candidate) => {
+    const existing = cvLinkByCandidateId(candidate.id)
+    try {
+      if (existing) {
+        if (existing.status === "active") {
+          toast.success("CV link is already active")
+          return
+        }
+        const res = await fetch(`/api/cv-links/${existing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "active" }),
+        })
+        if (!res.ok) throw new Error("Failed to activate")
+        toast.success("CV link activated")
+      } else {
+        const linkId = `cv-${candidate.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`
+        const shortUrl = `https://uhs.link/${linkId}`
+        const fullUrl = `https://urbanhospitality.com/cv/${linkId}`
+        const expiryDate = new Date()
+        expiryDate.setFullYear(expiryDate.getFullYear() + 1)
+        const res = await fetch("/api/cv-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateId: candidate.id,
+            candidateName: candidate.name,
+            position: candidate.position,
+            linkId,
+            shortUrl,
+            fullUrl,
+            expiryDate: expiryDate.toISOString().split("T")[0],
+            sharedWith: [],
+          }),
+        })
+        if (!res.ok) throw new Error((await res.json()).error || "Failed to create")
+        toast.success("CV link created and active")
+      }
+      fetchCvLinks()
+    } catch (e) {
+      toast.error(e.message || "Failed to activate CV link")
+    }
+  }
+
+  const handleDeactivateCvLink = async (candidate) => {
+    const existing = cvLinkByCandidateId(candidate.id)
+    if (!existing) {
+      toast.info("No CV link for this candidate")
+      return
+    }
+    try {
+      const res = await fetch(`/api/cv-links/${existing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "paused" }),
+      })
+      if (!res.ok) throw new Error("Failed to deactivate")
+      toast.success("CV link deactivated")
+      fetchCvLinks()
+    } catch (e) {
+      toast.error(e.message || "Failed to deactivate CV link")
+    }
+  }
+
+  const copyCvLink = (url) => {
+    navigator.clipboard.writeText(url)
+    toast.success("CV link copied")
   }
 
   const getStatusBadge = (status) => {
@@ -387,6 +473,8 @@ export default function AdminDashboard() {
                             <DropdownMenuItem onClick={() => openScheduleModal(candidate)}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -401,7 +489,8 @@ export default function AdminDashboard() {
                 )}
               </div>
             ) : (
-            <Table>
+            <div className="overflow-x-auto">
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -419,13 +508,14 @@ export default function AdminDashboard() {
                   <TableHead>Expected Salary</TableHead>
                   <TableHead>Rating</TableHead>
                   <TableHead>Last Updated</TableHead>
+                  <TableHead>CV Link</TableHead>
                   <TableHead className="w-12">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8">
+                    <TableCell colSpan={12} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
                       <span className="ml-2 text-gray-500">Loading candidates...</span>
                     </TableCell>
@@ -469,6 +559,18 @@ export default function AdminDashboard() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatLastUpdated(candidate.updatedAt)}
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const link = cvLinkByCandidateId(candidate.id)
+                          if (!link) return <span className="text-muted-foreground">—</span>
+                          return (
+                            <div className="flex items-center gap-1">
+                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={link.shortUrl}>{link.shortUrl}</code>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(link.shortUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
+                            </div>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -531,6 +633,12 @@ export default function AdminDashboard() {
                             <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
                               <History className="w-4 h-4 mr-2" /> History
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
+                              <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
+                              <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-red-600"
                               onClick={() => handleDelete(candidate.id)}
@@ -545,6 +653,7 @@ export default function AdminDashboard() {
                 )}
               </TableBody>
             </Table>
+            </div>
             )}
             <Pagination
               page={page}

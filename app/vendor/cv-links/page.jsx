@@ -49,6 +49,7 @@ export default function CVLinksPage() {
     expiryDate: "",
     sharedWith: "",
   })
+  const [viewModalLink, setViewModalLink] = useState(null)
 
   useEffect(() => {
     fetchCvLinks()
@@ -71,7 +72,7 @@ export default function CVLinksPage() {
       const response = await fetch(`/api/cv-links?${params.toString()}`)
       if (!response.ok) throw new Error("Failed to fetch CV links")
       const data = await response.json()
-      setCvLinks(data)
+      setCvLinks(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error("Error fetching CV links:", error)
       toast.error("Failed to load CV links")
@@ -82,12 +83,13 @@ export default function CVLinksPage() {
 
   const fetchCandidates = async () => {
     try {
-      const response = await fetch("/api/candidates")
+      const response = await fetch("/api/candidates?limit=500")
       if (!response.ok) throw new Error("Failed to fetch candidates")
-      const data = await response.json()
-      setCandidates(data)
+      const json = await response.json()
+      setCandidates(Array.isArray(json) ? json : (json.data ?? []))
     } catch (error) {
       console.error("Error fetching candidates:", error)
+      setCandidates([])
     }
   }
 
@@ -379,7 +381,8 @@ export default function CVLinksPage() {
                 <span className="ml-2 text-gray-500">Loading CV links...</span>
               </div>
             ) : (
-              <Table>
+              <div className="overflow-x-auto">
+              <Table className="min-w-[800px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Candidate</TableHead>
@@ -464,6 +467,10 @@ export default function CVLinksPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setViewModalLink(link)}>
+                              <Eye className="w-4 h-4 mr-2" />
+                              View details
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => copyToClipboard(link.shortUrl)}>
                               <Copy className="w-4 h-4 mr-2" />
                               Copy Link
@@ -491,6 +498,7 @@ export default function CVLinksPage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
 
             {!loading && filteredLinks.length === 0 && (
@@ -498,6 +506,43 @@ export default function CVLinksPage() {
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={!!viewModalLink} onOpenChange={(open) => !open && setViewModalLink(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>CV Link details</DialogTitle>
+              <DialogDescription>{viewModalLink?.candidateName} – {viewModalLink?.position}</DialogDescription>
+            </DialogHeader>
+            {viewModalLink && (
+              <div className="space-y-4 mt-2">
+                <div>
+                  <Label className="text-muted-foreground">Short URL</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="text-sm bg-muted px-2 py-1 rounded flex-1 truncate">{viewModalLink.shortUrl}</code>
+                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(viewModalLink.shortUrl)}><Copy className="w-4 h-4" /></Button>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Full URL</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="text-sm bg-muted px-2 py-1 rounded flex-1 truncate">{viewModalLink.fullUrl}</code>
+                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(viewModalLink.fullUrl)}><Copy className="w-4 h-4" /></Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Status</span>
+                  {getStatusBadge(viewModalLink.status)}
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={() => window.open(viewModalLink.fullUrl, "_blank")}>
+                    <ExternalLink className="w-4 h-4 mr-2" /> Open link
+                  </Button>
+                  <Button size="sm" onClick={() => { copyToClipboard(viewModalLink.shortUrl); setViewModalLink(null) }}><Copy className="w-4 h-4 mr-2" /> Copy & close</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )

@@ -39,6 +39,8 @@ import {
   Upload,
   Send,
   History,
+  Link2,
+  Copy,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
@@ -61,6 +63,7 @@ const initialAddForm = {
   status: "recently-applied",
   source: "",
   resume: null,
+  attachmentFiles: [], // { id, file, name } - multiple files with order
 }
 
 export default function ViewApplicantsPage() {
@@ -92,17 +95,20 @@ export default function ViewApplicantsPage() {
   const [viewDetailsCandidate, setViewDetailsCandidate] = useState(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editCandidate, setEditCandidate] = useState(null)
-  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "" })
+  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
   const [filterLocation, setFilterLocation] = useState("")
   const [filterPhone, setFilterPhone] = useState("")
   const [filterCandidateId, setFilterCandidateId] = useState("")
   const [filterResumeNotUpdated6, setFilterResumeNotUpdated6] = useState(false)
+  const [cvLinks, setCvLinks] = useState([])
+  const [uploadProgress, setUploadProgress] = useState(null) // { current, total, percent }
 
   useEffect(() => {
     fetchCandidates()
     fetchOutlets()
+    fetchCvLinks()
   }, [])
 
   const fetchOutlets = async () => {
@@ -114,6 +120,88 @@ export default function ViewApplicantsPage() {
     } catch (e) {
       console.error("Failed to fetch outlets", e)
     }
+  }
+
+  const fetchCvLinks = async () => {
+    try {
+      const res = await fetch("/api/cv-links")
+      if (!res.ok) return
+      const data = await res.json()
+      setCvLinks(Array.isArray(data) ? data : [])
+    } catch (e) {
+      console.error("Failed to fetch CV links", e)
+    }
+  }
+
+  const cvLinkByCandidateId = (id) => cvLinks.find((l) => l.candidateId === id)
+
+  const handleActivateCvLink = async (candidate) => {
+    const existing = cvLinkByCandidateId(candidate.id)
+    try {
+      if (existing) {
+        if (existing.status === "active") {
+          toast.success("CV link is already active")
+          return
+        }
+        const res = await fetch(`/api/cv-links/${existing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "active" }),
+        })
+        if (!res.ok) throw new Error("Failed to activate")
+        toast.success("CV link activated")
+      } else {
+        const linkId = `cv-${candidate.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`
+        const shortUrl = `https://uhs.link/${linkId}`
+        const fullUrl = `https://urbanhospitality.com/cv/${linkId}`
+        const expiryDate = new Date()
+        expiryDate.setFullYear(expiryDate.getFullYear() + 1)
+        const res = await fetch("/api/cv-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateId: candidate.id,
+            candidateName: candidate.name,
+            position: candidate.position,
+            linkId,
+            shortUrl,
+            fullUrl,
+            expiryDate: expiryDate.toISOString().split("T")[0],
+            sharedWith: [],
+          }),
+        })
+        if (!res.ok) throw new Error((await res.json()).error || "Failed to create")
+        toast.success("CV link created and active")
+      }
+      fetchCvLinks()
+    } catch (e) {
+      toast.error(e.message || "Failed to activate CV link")
+    }
+  }
+
+  const handleDeactivateCvLink = async (candidate) => {
+    const existing = cvLinkByCandidateId(candidate.id)
+    if (!existing) {
+      toast.info("No CV link for this candidate")
+      return
+    }
+    try {
+      const res = await fetch(`/api/cv-links/${existing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "paused" }),
+      })
+      if (!res.ok) throw new Error("Failed to deactivate")
+      toast.success("CV link deactivated")
+      fetchCvLinks()
+    } catch (e) {
+      toast.error(e.message || "Failed to deactivate CV link")
+    }
+  }
+
+  const copyCvLink = (url) => {
+    navigator.clipboard.writeText(url)
+    toast.success("CV link copied")
   }
 
   useEffect(() => {
@@ -290,26 +378,59 @@ export default function ViewApplicantsPage() {
     }
   }
 
+  const addAttachmentFiles = (files) => {
+    const list = Array.from(files || []).filter((f) => f && f.size > 0 && f.size <= 5 * 1024 * 1024)
+    const newItems = list.map((file) => ({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, file, name: file.name }))
+    setAddFormData((prev) => ({ ...prev, attachmentFiles: [...(prev.attachmentFiles || []), ...newItems] }))
+  }
+  const removeAttachmentFile = (id) => {
+    setAddFormData((prev) => ({ ...prev, attachmentFiles: (prev.attachmentFiles || []).filter((a) => a.id !== id) }))
+  }
+  const moveAttachment = (index, dir) => {
+    const list = [...(addFormData.attachmentFiles || [])]
+    const ni = dir === "up" ? index - 1 : index + 1
+    if (ni < 0 || ni >= list.length) return
+    ;[list[index], list[ni]] = [list[ni], list[index]]
+    setAddFormData((prev) => ({ ...prev, attachmentFiles: list }))
+  }
+
   const handleAddSubmit = async (e) => {
     e.preventDefault()
     setAddSubmitting(true)
+    setUploadProgress(null)
     try {
+      const files = addFormData.attachmentFiles || []
+      let attachments = []
+      if (files.length > 0) {
+        setUploadProgress({ current: 0, total: files.length, percent: 0 })
+        for (let i = 0; i < files.length; i++) {
+          setUploadProgress({ current: i + 1, total: files.length, percent: Math.round(((i + 1) / files.length) * 100) })
+          const fd = new FormData()
+          fd.append("file", files[i].file)
+          const up = await fetch("/api/upload", { method: "POST", body: fd })
+          if (!up.ok) throw new Error((await up.json()).error || "Upload failed")
+          const { path, name } = await up.json()
+          attachments.push({ path, name, order: i })
+        }
+        setUploadProgress(null)
+      }
       const hasResumeFile = addFormData.resume && typeof addFormData.resume === "object" && addFormData.resume.name
       let response
-      if (hasResumeFile) {
+      if (hasResumeFile && attachments.length === 0) {
         const formData = new FormData()
-        const { resume, ...rest } = addFormData
+        const { resume, attachmentFiles, ...rest } = addFormData
         Object.keys(rest).forEach((key) => {
           const v = rest[key]
           if (v != null && v !== "") formData.append(key, v)
         })
         formData.append("resume", resume)
-        response = await fetch("/api/candidates", {
-          method: "POST",
-          body: formData,
-        })
+        response = await fetch("/api/candidates", { method: "POST", body: formData })
       } else {
-        const { resume, ...payload } = addFormData
+        const { resume, attachmentFiles, ...payload } = addFormData
+        if (attachments.length > 0) {
+          payload.attachments = attachments
+          if (!payload.resume) payload.resume = attachments[0]?.path
+        }
         response = await fetch("/api/candidates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -327,6 +448,7 @@ export default function ViewApplicantsPage() {
     } catch (error) {
       console.error("Error adding candidate:", error)
       toast.error(error.message || "Failed to add candidate")
+      setUploadProgress(null)
     } finally {
       setAddSubmitting(false)
     }
@@ -463,22 +585,49 @@ export default function ViewApplicantsPage() {
                 </div>
               </div>
               <div>
-                <Label htmlFor="add-resume">Upload Resume</Label>
-                <label htmlFor="add-resume" className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer">
+                <Label>Upload resume / files</Label>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">PDF, DOC, DOCX, or images (max 5MB each). Order the list to set display order.</p>
+                <label
+                  htmlFor="add-attachments"
+                  className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-green-500") }}
+                  onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove("border-green-500") }}
+                  onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove("border-green-500"); addAttachmentFiles(e.dataTransfer.files) }}
+                >
                   <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600">Click to upload or drag and drop resume</p>
-                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, or DOCX (max 5MB)</p>
-                  {addFormData.resume && (
-                    <p className="text-sm text-green-600 mt-2 font-medium">{addFormData.resume.name}</p>
-                  )}
+                  <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max 5MB)</p>
                 </label>
                 <Input
-                  id="add-resume"
+                  id="add-attachments"
                   type="file"
-                  accept=".pdf,.doc,.docx"
+                  accept=".pdf,.doc,.docx,image/jpeg,image/png,image/gif,image/webp"
                   className="hidden"
-                  onChange={(e) => setAddFormData({ ...addFormData, resume: e.target.files?.[0] || null })}
+                  multiple
+                  onChange={(e) => { addAttachmentFiles(e.target.files); e.target.value = "" }}
                 />
+                {(addFormData.attachmentFiles || []).length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {(addFormData.attachmentFiles || []).map((a, idx) => (
+                      <li key={a.id} className="flex items-center gap-2 p-2 rounded border bg-muted/50">
+                        <span className="text-sm font-medium truncate flex-1">{a.name}</span>
+                        <div className="flex gap-1 shrink-0">
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => moveAttachment(idx, "up")} disabled={idx === 0}>↑</Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => moveAttachment(idx, "down")} disabled={idx === (addFormData.attachmentFiles?.length || 0) - 1}>↓</Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600" onClick={() => removeAttachmentFile(a.id)}><Trash2 className="w-4 h-4" /></Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {uploadProgress && (
+                  <div className="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+                    <p className="text-sm font-medium text-green-800">Uploading file {uploadProgress.current} of {uploadProgress.total}…</p>
+                    <div className="mt-2 h-2 bg-green-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-600 transition-all duration-300" style={{ width: `${uploadProgress.percent}%` }} />
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <Label htmlFor="add-skills">Skills & Qualifications</Label>
@@ -730,13 +879,85 @@ export default function ViewApplicantsPage() {
                   <Input id="edit-salary" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} />
                 </div>
               </div>
+              <div>
+                <Label>Attached files</Label>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">Drag and drop or click to add. PDF, DOC, DOCX, or images (max 5MB). Order the list below.</p>
+                <label
+                  htmlFor="edit-attachments"
+                  className="mt-2 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-green-500") }}
+                  onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove("border-green-500") }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.currentTarget.classList.remove("border-green-500")
+                    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    if (files.length === 0) return
+                    files.forEach((file) => {
+                      const fd = new FormData()
+                      fd.append("file", file)
+                      fetch("/api/upload", { method: "POST", body: fd })
+                        .then((res) => res.ok ? res.json() : Promise.reject())
+                        .then(({ path, name }) => {
+                          setEditForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), { path, name, order: (prev.attachments || []).length }] }))
+                          toast.success(`${name} added`)
+                        })
+                        .catch(() => toast.error("Upload failed"))
+                    })
+                  }}
+                >
+                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (max 5MB)</p>
+                </label>
+                <Input
+                  id="edit-attachments"
+                  type="file"
+                  accept=".pdf,.doc,.docx,image/jpeg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []).filter((f) => f.size > 0 && f.size <= 5 * 1024 * 1024)
+                    e.target.value = ""
+                    files.forEach((file) => {
+                      const fd = new FormData()
+                      fd.append("file", file)
+                      fetch("/api/upload", { method: "POST", body: fd })
+                        .then((res) => res.ok ? res.json() : Promise.reject())
+                        .then(({ path, name }) => {
+                          setEditForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), { path, name, order: (prev.attachments || []).length }] }))
+                          toast.success(`${name} added`)
+                        })
+                        .catch(() => toast.error("Upload failed"))
+                    })
+                  }}
+                />
+                {(editForm.attachments || []).length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {(editForm.attachments || []).map((a, idx) => (
+                      <li key={idx} className="flex items-center gap-2 p-2 rounded border bg-muted/50">
+                        <span className="text-sm truncate flex-1 font-medium">{a.name}</span>
+                        <div className="flex gap-1 shrink-0">
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => {
+                            const list = [...(editForm.attachments || [])]
+                            if (idx <= 0) return
+                            ;[list[idx - 1], list[idx]] = [list[idx], list[idx - 1]]
+                            setEditForm((prev) => ({ ...prev, attachments: list }))
+                          }} disabled={idx === 0}>↑</Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => {
+                            const list = [...(editForm.attachments || [])]
+                            if (idx >= list.length - 1) return
+                            ;[list[idx], list[idx + 1]] = [list[idx + 1], list[idx]]
+                            setEditForm((prev) => ({ ...prev, attachments: list }))
+                          }} disabled={idx === (editForm.attachments?.length || 0) - 1}>↓</Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600" onClick={() => setEditForm((prev) => ({ ...prev, attachments: (prev.attachments || []).filter((_, i) => i !== idx) }))}><Trash2 className="w-4 h-4" /></Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               {editCandidate && (
                 <div className="text-sm text-muted-foreground space-y-1">
-                  {editCandidate.resume ? (
-                    <p>Resume: <a href={editCandidate.resume.startsWith("/") ? editCandidate.resume : editCandidate.resume} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a></p>
-                  ) : (
-                    <p>Resume: Unavailable</p>
-                  )}
                   <p>Resume last updated: {editCandidate.resumeUpdatedAt ? new Date(editCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}</p>
                 </div>
               )}
@@ -878,12 +1099,14 @@ export default function ViewApplicantsPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "" }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>
                             <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>
                             <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openScheduleModal(candidate)}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -898,7 +1121,8 @@ export default function ViewApplicantsPage() {
                 )}
               </div>
             ) : (
-            <Table>
+            <div className="overflow-x-auto">
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -913,13 +1137,14 @@ export default function ViewApplicantsPage() {
                   <TableHead>Expected Salary</TableHead>
                   <TableHead>Rating</TableHead>
                   <TableHead>Last Updated</TableHead>
+                  <TableHead>CV Link</TableHead>
                   <TableHead className="w-12">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8">
+                    <TableCell colSpan={12} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
                       <span className="ml-2 text-gray-500">Loading candidates...</span>
                     </TableCell>
@@ -963,6 +1188,18 @@ export default function ViewApplicantsPage() {
                         {formatLastUpdated(candidate.updatedAt)}
                       </TableCell>
                       <TableCell>
+                        {(() => {
+                          const link = cvLinkByCandidateId(candidate.id)
+                          if (!link) return <span className="text-muted-foreground">—</span>
+                          return (
+                            <div className="flex items-center gap-1">
+                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={link.shortUrl}>{link.shortUrl}</code>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCvLink(link.shortUrl)} title="Copy link"><Copy className="w-3 h-3" /></Button>
+                            </div>
+                          )
+                        })()}
+                      </TableCell>
+                      <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button>
@@ -973,7 +1210,7 @@ export default function ViewApplicantsPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               setEditCandidate(candidate)
-                              setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "" })
+                              setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] })
                               setEditModalOpen(true)
                             }}>
                               <Edit className="w-4 h-4 mr-2" /> Edit
@@ -993,6 +1230,12 @@ export default function ViewApplicantsPage() {
                             <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
                               <History className="w-4 h-4 mr-2" /> History
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
+                              <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
+                              <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
+                            </DropdownMenuItem>
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
                               <Trash2 className="w-4 h-4 mr-2" /> Delete
                             </DropdownMenuItem>
@@ -1004,6 +1247,7 @@ export default function ViewApplicantsPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
             )}
             <Pagination
               page={page}
