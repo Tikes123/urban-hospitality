@@ -126,3 +126,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes wave-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+.animate-wave-pulse {
+  animation: wave-pulse 4s ease-in-out infinite;
+}

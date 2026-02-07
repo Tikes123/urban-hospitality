@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/carousel"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
-import { Hotel, UtensilsCrossed, Wine, MapPin, Quote, ChevronRight, Play } from "lucide-react"
+import { Hotel, UtensilsCrossed, Wine, MapPin, Quote, ChevronRight, Play, ChevronDown } from "lucide-react"
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -85,32 +85,105 @@ export default function HomePage() {
     return () => ctx.revert()
   }, [])
 
+  const WAVE_BASE = 50
+
   return (
-    <div ref={rootRef} className="min-h-screen bg-gradient-to-b from-[var(--brand-light)]/30 to-white">
+    <div ref={rootRef} className="min-h-screen bg-gradient-to-b from-gray-100 via-[var(--brand-light)]/20 to-white">
       <SiteHeader />
 
-      {/* Hero */}
-      <section className="relative py-20 md:py-28 px-4 overflow-hidden">
-        <div className="max-w-4xl mx-auto text-center">
-          <h1 ref={heroTitleRef} className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6 leading-tight">
-            Your Next Resort, Search Made Easy
-          </h1>
-          <p ref={heroSubRef} className="text-lg sm:text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-            Complete hospitality management platform connecting talented professionals with premier hotels, restaurants, and bars.
-          </p>
-          <div ref={heroCtaRef} className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" className="bg-[var(--brand)] hover:bg-[var(--brand-hover)] text-white" asChild>
-              <Link href="/apply-job">Find Opportunities</Link>
-            </Button>
-            <Button size="lg" variant="outline" className="border-[var(--brand)] text-[var(--brand)] hover:bg-[var(--brand-light)]" asChild>
-              <Link href="/for-business">For Business</Link>
-            </Button>
+      {/* Top banner */}
+      <div className="bg-[var(--brand)]/90 text-white text-center py-2 px-4 text-sm font-medium">
+        HELPING HOSPITALITY BUSINESSES GROW — TALENT & RECRUITMENT MADE SIMPLE
+      </div>
+
+      {/* Hero card with waves */}
+      <section className="relative py-12 md:py-16 px-4">
+        <div className="max-w-[1100px] mx-auto relative rounded-3xl bg-white shadow-xl overflow-hidden">
+          <div className="relative z-0 flex flex-col items-center justify-center min-h-[420px] md:min-h-[480px] px-6 py-12 md:py-16">
+            {/* Concentric waves: start from 50px circle, scale up to 15 (750px), then fill to card edges (1100px) */}
+            <div className="absolute pointer-events-none" style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }}>
+              <div
+                className="absolute rounded-full bg-white border-2 border-[var(--brand)]/30 shadow-inner"
+                style={{ width: 50, height: 50, left: -25, top: -25 }}
+                aria-hidden
+              />
+              {[1, 3, 6, 9, 12, 15].map((scale, i) => {
+                const size = WAVE_BASE * scale
+                const half = size / 2
+                return (
+                  <div
+                    key={scale}
+                    className="absolute rounded-full bg-gradient-to-br from-[var(--brand-light)]/35 via-[var(--brand)]/8 to-[var(--brand-muted)]/12 animate-wave-pulse"
+                    style={{
+                      width: size,
+                      height: size,
+                      left: -half,
+                      top: -half,
+                      opacity: Math.max(0.2, 0.65 - scale * 0.03),
+                      animationDelay: `${i * 0.3}s`,
+                    }}
+                    aria-hidden
+                  />
+                )
+              })}
+              {/* Outer wave: scale 15 = 750px diameter; extend to 1100px so waves reach card edges */}
+              <div
+                className="absolute rounded-full bg-gradient-to-br from-[var(--brand-light)]/20 via-[var(--brand)]/5 to-transparent animate-wave-pulse"
+                style={{
+                  width: 1100,
+                  height: 1100,
+                  left: -550,
+                  top: -550,
+                  opacity: 0.45,
+                  animationDelay: "0.6s",
+                }}
+                aria-hidden
+              />
+            </div>
+
+            <div className="relative z-10 text-center max-w-3xl">
+              <h1 ref={heroTitleRef} className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6 leading-tight">
+                <span className="inline-block bg-[var(--brand)] text-white px-2 py-0.5 rounded-md mr-1">Where</span>
+                {" "}Hospitality Talent Meets Opportunity
+              </h1>
+              <p ref={heroSubRef} className="text-lg sm:text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+                Complete hospitality management platform connecting talented professionals with premier hotels, restaurants, and bars.
+              </p>
+              <p className="text-sm text-gray-500 mb-6">Hospitality • Talent • Hotels & Restaurants</p>
+
+              <div className="flex flex-wrap justify-center gap-2 mb-8">
+                {["Hotels", "Restaurants", "Bars", "Bangalore", "Recruitment", "Apply Now"].map((tag) => (
+                  <span key={tag} className="px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-sm font-medium">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
+              <div ref={heroCtaRef} className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                <Button size="lg" className="bg-gray-900 hover:bg-gray-800 text-white rounded-lg gap-2" asChild>
+                  <Link href="/apply-job" className="inline-flex items-center gap-2">
+                    Find Opportunities
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="border-[var(--brand)] text-[var(--brand)] hover:bg-[var(--brand-light)] rounded-lg" asChild>
+                  <Link href="/for-business">For Business</Link>
+                </Button>
+              </div>
+
+              <a href="#who-we-are" className="mt-10 inline-flex flex-col items-center gap-1 text-gray-500 hover:text-[var(--brand)] transition-colors">
+                <span className="w-12 h-12 rounded-full border-2 border-[var(--brand)]/40 flex items-center justify-center bg-white/80">
+                  <ChevronDown className="w-5 h-5" />
+                </span>
+                <span className="text-xs font-medium">Explore more</span>
+              </a>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Who We Are */}
-      <section className="py-16 md:py-20 px-4 bg-white">
+      <section id="who-we-are" className="py-16 md:py-20 px-4 bg-white scroll-mt-16">
         <div
           className="max-w-4xl mx-auto text-center"
           ref={(el) => { sectionRefs.current[0] = el }}

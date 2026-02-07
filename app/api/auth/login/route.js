@@ -29,22 +29,13 @@ export async function POST(request) {
         return NextResponse.json({ error: "Invalid email or password" }, { status: 401 })
       }
 
-      const existingSession = await prisma.session.findFirst({
-        where: { adminUserId: adminUser.id, expiresAt: { gt: new Date() } },
-      })
-      if (existingSession) {
-        return NextResponse.json(
-          { error: "This account is already in use on another device. Please log out there first or use a single device." },
-          { status: 403 }
-        )
-      }
-
       const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")
       const expiresAt = new Date()
       expiresAt.setDate(expiresAt.getDate() + SESSION_DAYS)
 
+      await prisma.session.deleteMany({ where: { adminUserId: adminUser.id } })
       await prisma.session.create({
         data: {
           adminUserId: adminUser.id,
