@@ -113,29 +113,29 @@ export default function HomePage() {
                 return (
                   <div
                     key={scale}
-                    className="absolute rounded-full bg-gradient-to-br from-[var(--brand-light)]/35 via-[var(--brand)]/8 to-[var(--brand-muted)]/12 animate-wave-pulse"
+                    className="absolute rounded-full bg-gradient-to-br from-[var(--brand-light)]/35 via-[var(--brand)]/8 to-[var(--brand-muted)]/12 animate-wave-ripple"
                     style={{
                       width: size,
                       height: size,
                       left: -half,
                       top: -half,
-                      opacity: Math.max(0.2, 0.65 - scale * 0.03),
-                      animationDelay: `${i * 0.3}s`,
+                      opacity: Math.max(0.25, 0.6 - scale * 0.025),
+                      animationDelay: `${i * 0.22}s`,
                     }}
                     aria-hidden
                   />
                 )
               })}
-              {/* Outer wave: scale 15 = 750px diameter; extend to 1100px so waves reach card edges */}
+              {/* Outer wave: extend to 1100px so waves reach card edges */}
               <div
-                className="absolute rounded-full bg-gradient-to-br from-[var(--brand-light)]/20 via-[var(--brand)]/5 to-transparent animate-wave-pulse"
+                className="absolute rounded-full bg-gradient-to-br from-[var(--brand-light)]/20 via-[var(--brand)]/5 to-transparent animate-wave-ripple"
                 style={{
                   width: 1100,
                   height: 1100,
                   left: -550,
                   top: -550,
-                  opacity: 0.45,
-                  animationDelay: "0.6s",
+                  opacity: 0.4,
+                  animationDelay: "0.88s",
                 }}
                 aria-hidden
               />

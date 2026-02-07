@@ -127,15 +127,22 @@
   }
 }
 
-@keyframes wave-pulse {
-  0%, 100% {
-    opacity: 0.4;
+@keyframes wave-ripple {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.45;
   }
   50% {
-    opacity: 0.75;
+    transform: scale(1.06);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0.45;
   }
 }
 
-.animate-wave-pulse {
-  animation: wave-pulse 4s ease-in-out infinite;
+.animate-wave-ripple {
+  animation: wave-ripple 2.5s ease-in-out infinite;
+  transform-origin: center;
 }

@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Dialog,
   DialogContent,
@@ -93,6 +94,11 @@ export default function ViewApplicantsPage() {
   const [editCandidate, setEditCandidate] = useState(null)
   const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "" })
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
+  const [filterLocation, setFilterLocation] = useState("")
+  const [filterPhone, setFilterPhone] = useState("")
+  const [filterCandidateId, setFilterCandidateId] = useState("")
+  const [filterResumeNotUpdated6, setFilterResumeNotUpdated6] = useState(false)
 
   useEffect(() => {
     fetchCandidates()
@@ -112,12 +118,12 @@ export default function ViewApplicantsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, statusFilter, positionFilter])
+  }, [searchQuery, statusFilter, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
 
   useEffect(() => {
     const t = setTimeout(() => fetchCandidates(), searchQuery ? 300 : 0)
     return () => clearTimeout(t)
-  }, [page, limit, searchQuery, statusFilter, positionFilter])
+  }, [page, limit, searchQuery, statusFilter, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
 
   const fetchCandidates = async () => {
     try {
@@ -126,6 +132,10 @@ export default function ViewApplicantsPage() {
       if (statusFilter !== "all") params.append("status", statusFilter)
       if (positionFilter !== "all") params.append("position", positionFilter)
       if (searchQuery) params.append("search", searchQuery)
+      if (filterLocation.trim()) params.append("location", filterLocation.trim())
+      if (filterPhone.trim()) params.append("phone", filterPhone.trim())
+      if (filterCandidateId.trim()) params.append("candidateId", filterCandidateId.trim())
+      if (filterResumeNotUpdated6) params.append("resumeNotUpdatedMonths", "6")
       params.append("page", String(page))
       params.append("limit", String(limit))
 
@@ -167,6 +177,7 @@ export default function ViewApplicantsPage() {
   }
 
   const filteredCandidates = candidates
+  const moreFiltersCount = [filterLocation.trim(), filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6].filter(Boolean).length
 
   const handleSelectCandidate = (candidateId) => {
     setSelectedCandidates((prev) =>
@@ -776,10 +787,39 @@ export default function ViewApplicantsPage() {
                 </Select>
               </div>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => { setStatusFilter("all"); setPositionFilter("all"); setSearchQuery("") }}>
+                <Button variant="outline" size="sm" onClick={() => { setStatusFilter("all"); setPositionFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false) }}>
                   Clear Filters
                 </Button>
-                <Button variant="outline" size="sm"><Filter className="w-4 h-4 mr-2" /> More Filters</Button>
+                <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm"><Filter className="w-4 h-4 mr-2" /> More Filters{moreFiltersCount ? ` (${moreFiltersCount})` : ""}</Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80" align="end">
+                    <div className="space-y-4">
+                      <h4 className="font-medium">More filters</h4>
+                      <div className="space-y-2">
+                        <Label htmlFor="filter-location">Location</Label>
+                        <Input id="filter-location" placeholder="e.g. Bengaluru" value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="filter-phone">Phone number</Label>
+                        <Input id="filter-phone" placeholder="e.g. 98765..." value={filterPhone} onChange={(e) => setFilterPhone(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="filter-candidate-id">Candidate ID</Label>
+                        <Input id="filter-candidate-id" type="text" placeholder="e.g. 1" value={filterCandidateId} onChange={(e) => setFilterCandidateId(e.target.value)} />
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox id="filter-resume-6" checked={filterResumeNotUpdated6} onCheckedChange={(c) => setFilterResumeNotUpdated6(!!c)} />
+                        <Label htmlFor="filter-resume-6" className="font-normal cursor-pointer">Resume not updated in 6+ months</Label>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="ghost" size="sm" onClick={() => { setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false) }}>Clear</Button>
+                        <Button size="sm" onClick={() => setMoreFiltersOpen(false)}>Apply</Button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </CardContent>

@@ -37,19 +37,46 @@ export async function GET(request) {
     const status = searchParams.get("status")
     const position = searchParams.get("position")
     const search = searchParams.get("search")
+    const location = searchParams.get("location")
+    const phone = searchParams.get("phone")
+    const candidateId = searchParams.get("candidateId")
+    const resumeNotUpdatedMonths = searchParams.get("resumeNotUpdatedMonths")
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
     const limit = Math.min(200, Math.max(10, parseInt(searchParams.get("limit") || "50", 10)))
 
     const where = {}
     if (status && status !== "all") where.status = status
     if (position && position !== "all") where.position = { contains: position }
+    if (location && location.trim()) where.location = { contains: location.trim() }
+    if (phone && phone.trim()) where.phone = { contains: phone.trim() }
+    if (candidateId && candidateId.trim()) {
+      const id = parseInt(candidateId.trim(), 10)
+      if (!isNaN(id)) where.id = id
+    }
+    if (resumeNotUpdatedMonths && resumeNotUpdatedMonths.trim()) {
+      const months = parseInt(resumeNotUpdatedMonths.trim(), 10)
+      if (!isNaN(months) && months > 0) {
+        const cutoff = new Date()
+        cutoff.setMonth(cutoff.getMonth() - months)
+        where.OR = [
+          { resumeUpdatedAt: null },
+          { resumeUpdatedAt: { lt: cutoff } },
+        ]
+      }
+    }
     if (search) {
-      where.OR = [
+      const searchClause = [
         { name: { contains: search } },
         { email: { contains: search } },
         { phone: { contains: search } },
         { position: { contains: search } },
       ]
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchClause }]
+        delete where.OR
+      } else {
+        where.OR = searchClause
+      }
     }
 
     const [total, candidates] = await Promise.all([
