@@ -124,6 +124,8 @@ model Candidate {
   isActive      Boolean   @default(true)
   inactivatedByAdminUserId Int?  // only this vendor can reactivate
   inactivatedByHrId       Int?   // if HR inactivated, only this HR can reactivate
+  inactiveReason          String? @db.Text // optional remark when marked inactive
+  inactiveReasonCategory String? // one of: behaviour, theft_fraud, absconded, skill_mismatch
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

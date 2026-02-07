@@ -45,11 +45,20 @@ import {
   Share2,
   Check,
   ChevronDown,
+  UserX,
+  UserCheck,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
 import { CANDIDATE_STATUSES, getStatusInfo, getStatusBadgeClass } from "@/lib/statusConfig"
 import { getCvLinkUrl } from "@/lib/baseUrl"
+
+const INACTIVE_REASON_CATEGORIES = [
+  { value: "behaviour", label: "Behaviour or discipline issues (misconduct, attitude, substance use)" },
+  { value: "theft_fraud", label: "Theft, fraud, or other legal issues" },
+  { value: "absconded", label: "Absconded, no-show, or left immediately after joining" },
+  { value: "skill_mismatch", label: "Skill mismatch or failed trial / performance issues" },
+]
 
 const initialAddForm = {
   name: "",
@@ -74,7 +83,6 @@ const initialAddForm = {
 export default function ViewApplicantsPage() {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState("all")
   const [positionFilter, setPositionFilter] = useState([]) // array of selected positions; empty = all
   const [positionOptions, setPositionOptions] = useState([]) // from API
   const [positionDropdownOpen, setPositionDropdownOpen] = useState(false)
@@ -115,6 +123,11 @@ export default function ViewApplicantsPage() {
   const [filterResumeNotUpdated6, setFilterResumeNotUpdated6] = useState(false)
   const [isActiveFilter, setIsActiveFilter] = useState("all") // "all" | "active" | "inactive"
   const [sessionUser, setSessionUser] = useState(null) // { id, role } for activate permission
+  const [inactiveModalOpen, setInactiveModalOpen] = useState(false)
+  const [inactiveCandidate, setInactiveCandidate] = useState(null)
+  const [inactiveReasonCategory, setInactiveReasonCategory] = useState("")
+  const [inactiveReason, setInactiveReason] = useState("")
+  const [inactiveSubmitting, setInactiveSubmitting] = useState(false)
   const [cvLinks, setCvLinks] = useState([])
   const [locationOptions, setLocationOptions] = useState([]) // from outlets + custom
   const [uploadProgress, setUploadProgress] = useState(null) // { current, total, percent }
@@ -362,18 +375,17 @@ export default function ViewApplicantsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, statusFilter, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
+  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
 
   useEffect(() => {
     const t = setTimeout(() => fetchCandidates(), searchQuery ? 300 : 0)
     return () => clearTimeout(t)
-  }, [page, limit, searchQuery, statusFilter, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
+  }, [page, limit, searchQuery, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6])
 
   const fetchCandidates = async () => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
-      if (statusFilter !== "all") params.append("status", statusFilter)
       positionFilter.forEach((p) => params.append("positions", p))
       if (searchQuery) params.append("search", searchQuery)
       locationFilter.forEach((loc) => params.append("locations", loc))
@@ -502,23 +514,47 @@ export default function ViewApplicantsPage() {
     }
   }
 
-  const handleSetActiveStatus = async (candidateId, isActive) => {
+  const handleSetActiveStatus = async (candidateId, isActive, reason, category) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
     if (!token) { toast.error("Please log in to change active status"); return }
+    const body = { isActive }
+    if (isActive === false) {
+      if (reason != null) body.inactiveReason = String(reason).trim() || null
+      if (category && ["behaviour", "theft_fraud", "absconded", "skill_mismatch"].includes(category)) body.inactiveReasonCategory = category
+    }
+    const res = await fetch(`/api/candidates/${candidateId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || "Failed to update")
+    }
+    toast.success(isActive ? "Candidate activated" : "Candidate marked inactive")
+    setInactiveModalOpen(false)
+    setInactiveCandidate(null)
+    setInactiveReasonCategory("")
+    setInactiveReason("")
+    fetchCandidates()
+  }
+
+  const handleMarkInactiveClick = (candidate) => {
+    setInactiveCandidate(candidate)
+    setInactiveReasonCategory("")
+    setInactiveReason("")
+    setInactiveModalOpen(true)
+  }
+
+  const handleInactiveModalSubmit = async () => {
+    if (!inactiveCandidate) return
+    setInactiveSubmitting(true)
     try {
-      const res = await fetch(`/api/candidates/${candidateId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ isActive }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Failed to update")
-      }
-      toast.success(isActive ? "Candidate activated" : "Candidate marked inactive")
-      fetchCandidates()
+      await handleSetActiveStatus(inactiveCandidate.id, false, inactiveReason, inactiveReasonCategory || null)
     } catch (err) {
       toast.error(err.message || "Failed to update")
+    } finally {
+      setInactiveSubmitting(false)
     }
   }
 
@@ -1117,6 +1153,51 @@ export default function ViewApplicantsPage() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={inactiveModalOpen} onOpenChange={(open) => { if (!open) { setInactiveModalOpen(false); setInactiveCandidate(null); setInactiveReasonCategory(""); setInactiveReason("") } else setInactiveModalOpen(open) }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Mark candidate inactive</DialogTitle>
+              <DialogDescription>
+                {inactiveCandidate ? `Select a category and optionally add a remark for why ${inactiveCandidate.name} is being marked inactive. This will be visible to other vendors and HR.` : "Select a category (optional) and add a remark (optional)."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-4">
+              <div>
+                <Label>Reason category (optional)</Label>
+                <Select value={inactiveReasonCategory || "none"} onValueChange={(v) => setInactiveReasonCategory(v === "none" ? "" : v)}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {INACTIVE_REASON_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="inactive-reason">Remark / additional reason (optional)</Label>
+                <Textarea
+                  id="inactive-reason"
+                  placeholder="e.g. Additional details..."
+                  value={inactiveReason}
+                  onChange={(e) => setInactiveReason(e.target.value)}
+                  className="mt-2 min-h-[80px]"
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setInactiveModalOpen(false); setInactiveCandidate(null); setInactiveReasonCategory(""); setInactiveReason("") }}>Cancel</Button>
+                <Button disabled={inactiveSubmitting} onClick={handleInactiveModalSubmit}>
+                  {inactiveSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserX className="w-4 h-4 mr-2" />}
+                  Mark inactive
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
             <DialogHeader>
@@ -1131,6 +1212,21 @@ export default function ViewApplicantsPage() {
                 <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience}</p>
                 <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
                 <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
+                {viewDetailsCandidate.isActive === false && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3">
+                    <p className="font-medium text-amber-800 dark:text-amber-200">Inactive</p>
+                    {viewDetailsCandidate.inactiveReasonCategory && (
+                      <p className="mt-1 text-muted-foreground">
+                        <span className="font-medium">Category:</span> {INACTIVE_REASON_CATEGORIES.find((c) => c.value === viewDetailsCandidate.inactiveReasonCategory)?.label ?? viewDetailsCandidate.inactiveReasonCategory}
+                      </p>
+                    )}
+                    {viewDetailsCandidate.inactiveReason ? (
+                      <p className="mt-1 text-muted-foreground"><span className="font-medium">Remark:</span> {viewDetailsCandidate.inactiveReason}</p>
+                    ) : viewDetailsCandidate.inactiveReasonCategory ? null : (
+                      <p className="mt-1 text-muted-foreground">No reason provided.</p>
+                    )}
+                  </div>
+                )}
                 {(() => {
                   const att = viewDetailsCandidate.attachments || []
                   const firstPath = viewDetailsCandidate.resume || (att[0] && att[0].path)
@@ -1363,16 +1459,6 @@ export default function ViewApplicantsPage() {
                   />
                 </div>
               </div>
-              <div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger><SelectValue placeholder="Filter by Status" /></SelectTrigger>
-                  <SelectContent>
-                    {CANDIDATE_STATUSES.filter((s) => s.value === "all" || !s.value.startsWith("all")).map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="min-w-[200px]">
                 <Popover open={positionDropdownOpen} onOpenChange={setPositionDropdownOpen}>
                   <PopoverTrigger asChild>
@@ -1449,7 +1535,7 @@ export default function ViewApplicantsPage() {
                 </Select>
               </div>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => { setStatusFilter("all"); setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false) }}>
+                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false) }}>
                   Clear Filters
                 </Button>
                 <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
@@ -1614,8 +1700,8 @@ export default function ViewApplicantsPage() {
                             <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>
-                            {candidate.isActive !== false && <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, false)}>Mark inactive</DropdownMenuItem>}
-                            {candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}>Activate</DropdownMenuItem>}
+                            {candidate.isActive !== false && <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}><UserX className="w-4 h-4 mr-2" /> Mark inactive</DropdownMenuItem>}
+                            {candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}><UserCheck className="w-4 h-4 mr-2" /> Activate</DropdownMenuItem>}
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -1793,13 +1879,13 @@ export default function ViewApplicantsPage() {
                               <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
                             </DropdownMenuItem>
                             {candidate.isActive !== false && (
-                              <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, false)}>
-                                Mark inactive
+                              <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}>
+                                <UserX className="w-4 h-4 mr-2" /> Mark inactive
                               </DropdownMenuItem>
                             )}
                             {candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && (
                               <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}>
-                                Activate
+                                <UserCheck className="w-4 h-4 mr-2" /> Activate
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>

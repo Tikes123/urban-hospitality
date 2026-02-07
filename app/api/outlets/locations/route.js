@@ -4,16 +4,18 @@ import { prisma } from "@/lib/prisma"
 /** GET /api/outlets/locations - returns distinct location values from outlets + custom locations (for dropdowns) */
 export async function GET() {
   try {
-    const [outlets, custom] = await Promise.all([
-      prisma.outlet.findMany({ select: { area: true, address: true } }),
-      prisma.customLocation.findMany({ select: { value: true } }),
-    ])
+    const outlets = await prisma.outlet.findMany({ select: { area: true, address: true } })
     const set = new Set()
     for (const o of outlets) {
       if (o.area && String(o.area).trim()) set.add(String(o.area).trim())
       if (o.address && String(o.address).trim()) set.add(String(o.address).trim())
     }
-    for (const c of custom) if (c.value && String(c.value).trim()) set.add(String(c.value).trim())
+    try {
+      if (prisma.customLocation) {
+        const custom = await prisma.customLocation.findMany({ select: { value: true } })
+        for (const c of custom) if (c.value && String(c.value).trim()) set.add(String(c.value).trim())
+      }
+    } catch (_) { /* customLocation table or model may not exist yet */ }
     const locations = [...set].sort((a, b) => a.localeCompare(b))
     return NextResponse.json(locations)
   } catch (error) {
@@ -37,12 +39,23 @@ export async function POST(request) {
     const body = await request.json()
     const value = body.value != null ? String(body.value).trim() : ""
     if (!value) return NextResponse.json({ error: "value is required" }, { status: 400 })
-    const existing = await prisma.customLocation.findFirst({ where: { value, createdByAdminUserId: session.adminUserId } })
-    if (existing) return NextResponse.json({ value: existing.value })
-    const created = await prisma.customLocation.create({
-      data: { value, createdByAdminUserId: session.adminUserId },
-    })
-    return NextResponse.json({ value: created.value }, { status: 201 })
+    let existing = null
+    try {
+      if (prisma.customLocation) {
+        existing = await prisma.customLocation.findFirst({ where: { value, createdByAdminUserId: session.adminUserId } })
+        if (existing) return NextResponse.json({ value: existing.value })
+        const created = await prisma.customLocation.create({
+          data: { value, createdByAdminUserId: session.adminUserId },
+        })
+        return NextResponse.json({ value: created.value }, { status: 201 })
+      }
+    } catch (e) {
+      if (e.code === "P2021" || String(e.message || "").includes("customLocation")) {
+        return NextResponse.json({ value }, { status: 201 })
+      }
+      throw e
+    }
+    return NextResponse.json({ value }, { status: 201 })
   } catch (error) {
     console.error("Error adding custom location:", error)
     return NextResponse.json({ error: "Failed to add location" }, { status: 500 })

@@ -70,22 +70,42 @@ export async function PUT(request, { params }) {
       if (arr.length > 0 && arr[0].path) updateData.resume = arr[0].path
     }
 
+    if (body.inactiveReason !== undefined) {
+      try {
+        updateData.inactiveReason = body.inactiveReason != null ? String(body.inactiveReason).trim() || null : null
+      } catch (_) {}
+    }
+    if (body.inactiveReasonCategory !== undefined) {
+      const allowed = ["behaviour", "theft_fraud", "absconded", "skill_mismatch"]
+      const v = body.inactiveReasonCategory != null ? String(body.inactiveReasonCategory).trim() : ""
+      updateData.inactiveReasonCategory = allowed.includes(v) ? v : null
+    }
     if (body.isActive !== undefined) {
       const session = await getVendorSession(request)
       if (!session) return NextResponse.json({ error: "Unauthorized: session required to change active status" }, { status: 401 })
-      const existing = await prisma.candidate.findUnique({ where: { id }, select: { isActive: true, inactivatedByAdminUserId: true, inactivatedByHrId: true } })
+      const existing = await prisma.candidate.findUnique({ where: { id } })
       if (!existing) return NextResponse.json({ error: "Candidate not found" }, { status: 404 })
+      const inactivatedByAdminUserId = existing.inactivatedByAdminUserId
+      const inactivatedByHrId = existing.inactivatedByHrId
       if (body.isActive === false) {
         updateData.isActive = false
         updateData.inactivatedByAdminUserId = session.adminUserId
         updateData.inactivatedByHrId = null
+        if (body.inactiveReason !== undefined) updateData.inactiveReason = body.inactiveReason != null ? String(body.inactiveReason).trim() || null : null
+        if (body.inactiveReasonCategory !== undefined) {
+          const allowed = ["behaviour", "theft_fraud", "absconded", "skill_mismatch"]
+          const v = body.inactiveReasonCategory != null ? String(body.inactiveReasonCategory).trim() : ""
+          updateData.inactiveReasonCategory = allowed.includes(v) ? v : null
+        }
       } else {
-        const canActivate = existing.inactivatedByAdminUserId != null && existing.inactivatedByAdminUserId === session.adminUserId
-          || (existing.inactivatedByHrId != null && session.adminUser?.role === "super_admin")
+        const canActivate = (inactivatedByAdminUserId != null && inactivatedByAdminUserId === session.adminUserId) ||
+          (session.adminUser?.role === "super_admin")
         if (!canActivate) return NextResponse.json({ error: "Only the vendor or HR who inactivated this candidate can reactivate them" }, { status: 403 })
         updateData.isActive = true
         updateData.inactivatedByAdminUserId = null
         updateData.inactivatedByHrId = null
+        updateData.inactiveReason = null
+        updateData.inactiveReasonCategory = null
       }
     }
 
