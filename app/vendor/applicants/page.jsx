@@ -397,6 +397,7 @@ export default function ViewApplicantsPage() {
       })
       if (!res.ok) throw new Error((await res.json()).error || "Failed to save")
       setShareInfoCandidate((prev) => prev ? { ...prev, shareIntro: shareInfoIntro } : null)
+      setCandidates((prev) => prev.map((c) => (c.id === shareInfoCandidate.id ? { ...c, shareIntro: shareInfoIntro } : c)))
       toast.success("Highlight / Intro saved")
     } catch (err) {
       toast.error(err.message || "Failed to save")

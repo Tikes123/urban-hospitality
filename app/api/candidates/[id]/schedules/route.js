@@ -12,7 +12,7 @@ export async function GET(request, { params }) {
 
     const schedules = await scheduleModel.findMany({
       where: { candidateId: id },
-      include: { outlet: true, taggedBy: true },
+      include: { outlet: true },
       orderBy: { scheduledAt: "desc" },
     })
 
@@ -20,7 +20,7 @@ export async function GET(request, { params }) {
       ...s,
       scheduledAt: s.scheduledAt.toISOString(),
       createdAt: s.createdAt.toISOString(),
-      taggedBy: s.taggedBy ? { id: s.taggedBy.id, name: s.taggedBy.name, email: s.taggedBy.email } : null,
+      taggedBy: null,
     })))
   } catch (error) {
     console.error("Error fetching schedules:", error)
@@ -68,13 +68,13 @@ export async function POST(request, { params }) {
           remarks: remarks || null,
           taggedByAdminUserId,
         },
-        include: { outlet: true, taggedBy: true },
+        include: { outlet: true },
       })
       created.push({
         ...schedule,
         scheduledAt: schedule.scheduledAt.toISOString(),
         createdAt: schedule.createdAt.toISOString(),
-        taggedBy: schedule.taggedBy ? { id: schedule.taggedBy.id, name: schedule.taggedBy.name, email: schedule.taggedBy.email } : null,
+        taggedBy: null,
       })
     }
 
