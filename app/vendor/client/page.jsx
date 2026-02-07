@@ -227,7 +227,7 @@ export default function ClientPage() {
       case "active":
         return <Badge className="bg-green-100 text-green-800">Active</Badge>
       case "trial":
-        return <Badge className="bg-blue-100 text-blue-800">Trial</Badge>
+        return <Badge className="bg-green-100 text-green-800">Trial</Badge>
       case "renewal-pending":
         return <Badge className="bg-yellow-100 text-yellow-800">Renewal Pending</Badge>
       case "expired":
@@ -713,7 +713,7 @@ export default function ClientPage() {
                   <p className="text-sm text-gray-600">Active Clients</p>
                   <p className="text-2xl font-bold">{activeClients}</p>
                 </div>
-                <Users className="w-8 h-8 text-blue-600" />
+                <Users className="w-8 h-8 text-green-600" />
               </div>
             </CardContent>
           </Card>

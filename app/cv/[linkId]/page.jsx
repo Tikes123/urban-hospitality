@@ -86,7 +86,7 @@ export default function PublicCVPage({ params }) {
                   <li key={idx} className="flex items-center justify-between gap-4 p-3 rounded-lg border bg-white">
                     <div className="flex items-center gap-3 min-w-0">
                       {isImage(file.path) ? (
-                        <Image className="w-8 h-8 text-blue-500 shrink-0" />
+                        <Image className="w-8 h-8 text-green-500 shrink-0" />
                       ) : (
                         <FileText className="w-8 h-8 text-gray-500 shrink-0" />
                       )}

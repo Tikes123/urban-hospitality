@@ -301,7 +301,7 @@ export default function CVLinksPage() {
                   <p className="text-sm text-gray-600">Total Views</p>
                   <p className="text-2xl font-bold">{totalViews}</p>
                 </div>
-                <Eye className="w-8 h-8 text-blue-600" />
+                <Eye className="w-8 h-8 text-green-600" />
               </div>
             </CardContent>
           </Card>

@@ -43,7 +43,7 @@ export default function OutletsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
   const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(50)
+  const [limit, setLimit] = useState(15)
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
@@ -642,70 +642,68 @@ export default function OutletsPage() {
             <span className="ml-2 text-gray-500">Loading outlets...</span>
           </div>
         ) : (
-          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {filteredOutlets.map((outlet) => (
-              <Card key={outlet.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                <div className="aspect-video bg-gray-200 relative">
+              <Card key={outlet.id} className="overflow-hidden hover:shadow-lg transition-shadow flex flex-col">
+                <div className="aspect-[4/3] bg-gray-200 relative shrink-0">
                   <img
                     src={outlet.image || "/placeholder.svg"}
                     alt={outlet.name}
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute top-4 left-4">{getStatusBadge(outlet.status)}</div>
+                  <div className="absolute top-2 left-2">{getStatusBadge(outlet.status)}</div>
                   {outlet.rating && (
-                    <div className="absolute top-4 right-4 flex items-center space-x-1 bg-white/90 rounded px-2 py-1">
-                      <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                      <span className="text-sm font-medium">{outlet.rating}</span>
+                    <div className="absolute top-2 right-2 flex items-center space-x-1 bg-white/90 rounded px-1.5 py-0.5">
+                      <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                      <span className="text-xs font-medium">{outlet.rating}</span>
                     </div>
                   )}
                 </div>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                <CardHeader className="p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2 min-w-0">
                       {getTypeIcon(outlet.type)}
-                      <CardTitle className="text-lg">{outlet.name}</CardTitle>
+                      <CardTitle className="text-sm font-semibold truncate">{outlet.name}</CardTitle>
                     </div>
-                    <div className="flex space-x-1">
-                      <Button variant="ghost" size="sm" onClick={() => handleEdit(outlet)}>
-                        <Edit className="w-4 h-4" />
+                    <div className="flex space-x-0.5 shrink-0">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEdit(outlet)}>
+                        <Edit className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-red-600" onClick={() => handleDelete(outlet.id)}>
-                        <Trash2 className="w-4 h-4" />
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600" onClick={() => handleDelete(outlet.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
-                  {outlet.description && <CardDescription>{outlet.description}</CardDescription>}
+                  {outlet.description && <CardDescription className="text-xs line-clamp-2">{outlet.description}</CardDescription>}
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <MapPin className="w-4 h-4 mr-2" />
-                      {outlet.address}
+                <CardContent className="p-3 pt-0 space-y-2">
+                  <div className="flex items-start text-xs text-gray-600 gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span className="line-clamp-2">{outlet.address}</span>
+                  </div>
+                  <div className="flex items-center text-xs text-gray-600">
+                    <Phone className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                    <span className="truncate">{outlet.phone}</span>
+                  </div>
+                  <div className="flex items-center text-xs text-gray-600">
+                    <Mail className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                    <span className="truncate">{outlet.email}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t text-xs">
+                    <div className="flex items-center min-w-0">
+                      <Avatar className="w-5 h-5 mr-1.5 shrink-0">
+                        <AvatarFallback className="text-[10px]">
+                          {outlet.manager
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-gray-600 truncate">Manager: {outlet.manager}</span>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Phone className="w-4 h-4 mr-2" />
-                      {outlet.phone}
-                    </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Mail className="w-4 h-4 mr-2" />
-                      {outlet.email}
-                    </div>
-                    <div className="flex items-center justify-between pt-2 border-t">
-                      <div className="flex items-center text-sm">
-                        <Avatar className="w-6 h-6 mr-2">
-                          <AvatarFallback className="text-xs">
-                            {outlet.manager
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-gray-600">Manager: {outlet.manager}</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Users className="w-4 h-4 mr-1" />
-                        {outlet.employees}
-                      </div>
+                    <div className="flex items-center text-gray-600 shrink-0">
+                      <Users className="w-3.5 h-3.5 mr-0.5" />
+                      {outlet.employees}
                     </div>
                   </div>
                 </CardContent>

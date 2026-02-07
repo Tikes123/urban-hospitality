@@ -124,7 +124,7 @@ export default function AnalyticsPage() {
                         <p className="text-sm font-medium text-muted-foreground">Candidates added</p>
                         <p className="text-2xl font-bold">{data.candidatesAdded ?? 0}</p>
                       </div>
-                      <Users className="h-10 w-10 text-blue-500" />
+                      <Users className="h-10 w-10 text-green-500" />
                     </div>
                   </CardContent>
                 </Card>

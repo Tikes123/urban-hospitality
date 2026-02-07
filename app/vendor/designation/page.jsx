@@ -211,7 +211,7 @@ export default function DesignationPage() {
       case "Entry":
         return <Badge className="bg-green-100 text-green-800">Entry Level</Badge>
       case "Mid":
-        return <Badge className="bg-blue-100 text-blue-800">Mid Level</Badge>
+        return <Badge className="bg-green-100 text-green-800">Mid Level</Badge>
       case "Senior":
         return <Badge className="bg-purple-100 text-purple-800">Senior Level</Badge>
       default:
@@ -474,7 +474,7 @@ export default function DesignationPage() {
                   <p className="text-sm text-gray-600">Open Positions</p>
                   <p className="text-2xl font-bold">{totalPositions}</p>
                 </div>
-                <Users className="w-8 h-8 text-blue-600" />
+                <Users className="w-8 h-8 text-green-600" />
               </div>
             </CardContent>
           </Card>

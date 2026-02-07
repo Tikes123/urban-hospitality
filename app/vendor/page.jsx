@@ -355,7 +355,7 @@ export default function AdminDashboard() {
                   <p className="text-sm font-medium text-muted-foreground">Candidates added today</p>
                   <p className="text-2xl font-bold">{todayStatsLoading ? "—" : todayStats.candidatesAddedToday ?? 0}</p>
                 </div>
-                <Users className="h-10 w-10 text-blue-500" />
+                <Users className="h-10 w-10 text-green-500" />
               </div>
             </CardContent>
           </Card>
@@ -392,7 +392,7 @@ export default function AdminDashboard() {
         </div>
 
         <Card>
-          <CardHeader className="bg-blue-500 text-white">
+          <CardHeader className="bg-green-600 text-white">
             <CardTitle className="text-xl">Recently Applied, Suggested and Backed-Out Candidate List!</CardTitle>
           </CardHeader>
           <CardContent className="p-6">

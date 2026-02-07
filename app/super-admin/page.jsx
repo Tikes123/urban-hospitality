@@ -26,7 +26,7 @@ export default function SuperAdminDashboard() {
                 <p className="text-sm font-medium text-muted-foreground">Vendors</p>
                 <p className="text-2xl font-bold">{stats.vendors}</p>
               </div>
-              <Users className="h-10 w-10 text-blue-500" />
+              <Users className="h-10 w-10 text-green-500" />
             </div>
           </CardContent>
         </Card>
