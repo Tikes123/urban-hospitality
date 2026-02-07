@@ -611,7 +611,7 @@ export default function DesignationPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem>
                               <Briefcase className="w-4 h-4 mr-2" />
-                              View Applicants
+                              Applicants
                             </DropdownMenuItem>
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(designation.id)}>
                               <Trash2 className="w-4 h-4 mr-2" />

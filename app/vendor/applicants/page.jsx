@@ -459,7 +459,7 @@ export default function ViewApplicantsPage() {
       <VendorHeader user={null} />
       <main className="p-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">View Applicants</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Applicants</h1>
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="sm">
               <Download className="w-4 h-4 mr-2" /> Export

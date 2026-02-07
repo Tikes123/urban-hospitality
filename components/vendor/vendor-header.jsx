@@ -19,18 +19,20 @@ import {
   User,
   Settings,
   CreditCard,
+  ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PRIMARY_NAV_KEYS } from "@/lib/vendorMenuConfig"
 
 const FALLBACK_NAV = [
-  { href: "/vendor", label: "Home" },
-  { href: "/vendor/applicants", label: "View Applicants" },
-  { href: "/vendor/outlets", label: "Outlets" },
-  { href: "/vendor/calendar", label: "Calendar" },
-  { href: "/vendor/cv-links", label: "Active CV Links" },
-  { href: "/vendor/designation", label: "Designation" },
-  { href: "/vendor/client", label: "Client" },
-  { href: "/vendor/manage-hr", label: "Manage HR" },
+  { menuKey: "home", href: "/vendor", label: "Home" },
+  { menuKey: "applicants", href: "/vendor/applicants", label: "Applicants" },
+  { menuKey: "outlets", href: "/vendor/outlets", label: "Outlets" },
+  { menuKey: "calendar", href: "/vendor/calendar", label: "Calendar" },
+  { menuKey: "cv-links", href: "/vendor/cv-links", label: "Active CV Links" },
+  { menuKey: "designation", href: "/vendor/designation", label: "Designation" },
+  { menuKey: "client", href: "/vendor/client", label: "Client" },
+  { menuKey: "manage-hr", href: "/vendor/manage-hr", label: "Manage HR" },
 ]
 
 const FALLBACK_DROPDOWN = [
@@ -63,7 +65,7 @@ export function VendorHeader({ user: userProp }) {
     fetch("/api/vendor/menu-permissions", { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.ok ? res.json() : Promise.reject(new Error("Unauthorized")))
       .then((data) => {
-        const nav = (data.navLinks || []).map((m) => ({ href: m.path, label: m.label }))
+        const nav = (data.navLinks || []).map((m) => ({ menuKey: m.menuKey, href: m.path, label: m.label }))
         const drop = (data.dropdownLinks || []).map((m) => ({ href: m.path, label: m.label }))
         if (nav.length) setNavLinks(nav)
         if (drop.length) setDropdownLinks(drop)
@@ -94,7 +96,7 @@ export function VendorHeader({ user: userProp }) {
             </Link>
 
             <nav className="hidden min-[1200px]:flex items-center space-x-6">
-              {navLinks.map(({ href, label }) => (
+              {(typeof navLinks[0]?.menuKey !== "undefined" ? navLinks.filter((m) => PRIMARY_NAV_KEYS.includes(m.menuKey)) : navLinks.slice(0, 4)).map(({ href, label }) => (
                 <Link
                   key={href}
                   href={href}
@@ -106,6 +108,40 @@ export function VendorHeader({ user: userProp }) {
                   {label}
                 </Link>
               ))}
+              {(() => {
+              const moreLinks = typeof navLinks[0]?.menuKey !== "undefined" ? navLinks.filter((m) => !PRIMARY_NAV_KEYS.includes(m.menuKey)) : navLinks.slice(4)
+              return moreLinks.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "text-gray-600 hover:text-gray-900 whitespace-nowrap gap-0.5",
+                        moreLinks.some((m) => isActive(m.href)) && "text-green-600 font-medium"
+                      )}
+                    >
+                      More
+                      <ChevronDown className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    {moreLinks.map(({ href, label }) => (
+                      <DropdownMenuItem key={href} asChild>
+                        <Link
+                          href={href}
+                          className={cn(
+                            "cursor-pointer",
+                            isActive(href) && "bg-green-50 text-green-700 font-medium"
+                          )}
+                        >
+                          {label}
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            })()}
             </nav>
           </div>
 
