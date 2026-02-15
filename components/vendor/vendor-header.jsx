@@ -41,12 +41,16 @@ const FALLBACK_DROPDOWN = [
   { href: "/vendor/billing", label: "Billing" },
 ]
 
+const VIEW_AS_HR_KEY = "vendor_view_as_hr_id"
+
 export function VendorHeader({ user: userProp }) {
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [user, setUser] = useState(userProp)
   const [navLinks, setNavLinks] = useState(FALLBACK_NAV)
   const [dropdownLinks, setDropdownLinks] = useState(FALLBACK_DROPDOWN)
+  const [hrList, setHrList] = useState([])
+  const [viewAsHrId, setViewAsHrId] = useState(null)
 
   useEffect(() => {
     if (userProp) {
@@ -60,9 +64,35 @@ export function VendorHeader({ user: userProp }) {
   }, [userProp])
 
   useEffect(() => {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(VIEW_AS_HR_KEY) : null
+      setViewAsHrId(raw ? parseInt(raw, 10) : null)
+    } catch (_) {}
+  }, [])
+
+  useEffect(() => {
+    let vendorId = null
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("auth_user") : null
+      if (raw) {
+        const u = JSON.parse(raw)
+        if (u?.id) vendorId = u.id
+      }
+    } catch (_) {}
+    if (vendorId == null) return
+    fetch(`/api/hr?vendorId=${vendorId}&limit=200`)
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((data) => setHrList(data.data ?? []))
+      .catch(() => setHrList([]))
+  }, [])
+
+  useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
     if (!token) return
-    fetch("/api/vendor/menu-permissions", { headers: { Authorization: `Bearer ${token}` } })
+    const url = viewAsHrId != null && !isNaN(viewAsHrId)
+      ? `/api/vendor/menu-permissions?hrId=${viewAsHrId}`
+      : "/api/vendor/menu-permissions"
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.ok ? res.json() : Promise.reject(new Error("Unauthorized")))
       .then((data) => {
         const nav = (data.navLinks || []).map((m) => ({ menuKey: m.menuKey, href: m.path, label: m.label }))
@@ -71,7 +101,7 @@ export function VendorHeader({ user: userProp }) {
         if (drop.length) setDropdownLinks(drop)
       })
       .catch(() => {})
-  }, [])
+  }, [viewAsHrId])
 
   const currentPath = pathname || ""
   const isActive = (href) => (href === "/vendor" ? currentPath === "/vendor" : currentPath.startsWith(href))
@@ -145,7 +175,27 @@ export function VendorHeader({ user: userProp }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            {hrList.length > 0 && (
+              <select
+                value={viewAsHrId != null ? String(viewAsHrId) : ""}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (typeof window !== "undefined") {
+                    if (v) localStorage.setItem(VIEW_AS_HR_KEY, v)
+                    else localStorage.removeItem(VIEW_AS_HR_KEY)
+                    window.location.reload()
+                  }
+                }}
+                className="text-sm border rounded-md px-2 py-1.5 bg-gray-50 text-gray-700 max-w-[140px] truncate"
+                title="View as (permissions)"
+              >
+                <option value="">My account</option>
+                {hrList.map((hr) => (
+                  <option key={hr.id} value={String(hr.id)}>{hr.name}</option>
+                ))}
+              </select>
+            )}
             <Button
               variant="ghost"
               size="icon"

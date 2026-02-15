@@ -10,12 +10,17 @@ export async function GET(request, { params }) {
       include: { candidate: true },
     })
     if (!cvLink) return NextResponse.json({ error: "CV link not found" }, { status: 404 })
+    const ids = cvLink.outletIds ? JSON.parse(cvLink.outletIds) : []
+    const outlets = ids.length ? await prisma.outlet.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []
+    const outletMap = Object.fromEntries(outlets.map((o) => [o.id, o.name]))
     return NextResponse.json({
       ...cvLink,
       createdDate: cvLink.createdDate.toISOString().split("T")[0],
       expiryDate: cvLink.expiryDate.toISOString().split("T")[0],
       lastViewed: cvLink.lastViewed?.toISOString().split("T")[0] || null,
       sharedWith: cvLink.sharedWith ? JSON.parse(cvLink.sharedWith) : [],
+      outletIds: ids,
+      outletNames: ids.map((id) => outletMap[id] || `#${id}`),
     })
   } catch (error) {
     console.error("Error fetching CV link:", error)
@@ -34,6 +39,10 @@ export async function PUT(request, { params }) {
     if (body.downloads !== undefined) updateData.downloads = body.downloads
     if (body.lastViewed !== undefined) updateData.lastViewed = body.lastViewed ? new Date(body.lastViewed) : null
     if (body.sharedWith !== undefined) updateData.sharedWith = Array.isArray(body.sharedWith) ? JSON.stringify(body.sharedWith) : JSON.stringify([])
+    if (body.outletIds !== undefined) {
+      const arr = Array.isArray(body.outletIds) ? body.outletIds.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id)) : []
+      updateData.outletIds = arr.length ? JSON.stringify(arr) : null
+    }
 
     const cvLink = await prisma.cVLink.update({
       where: { id },
@@ -41,12 +50,16 @@ export async function PUT(request, { params }) {
       include: { candidate: true },
     })
 
+    const ids = cvLink.outletIds ? JSON.parse(cvLink.outletIds) : []
+    const outlets = ids.length ? await prisma.outlet.findMany({ where: { id: { in: ids } }, select: { name: true } }) : []
     return NextResponse.json({
       ...cvLink,
       createdDate: cvLink.createdDate.toISOString().split("T")[0],
       expiryDate: cvLink.expiryDate.toISOString().split("T")[0],
       lastViewed: cvLink.lastViewed?.toISOString().split("T")[0] || null,
       sharedWith: cvLink.sharedWith ? JSON.parse(cvLink.sharedWith) : [],
+      outletIds: ids,
+      outletNames: outlets.map((o) => o.name),
     })
   } catch (error) {
     console.error("Error updating CV link:", error)

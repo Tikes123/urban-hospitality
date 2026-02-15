@@ -62,19 +62,40 @@ export async function GET(request) {
     const bucket = searchParams.get("bucket") || (period === "year" ? "quarter" : period === "month" ? "week" : "day")
     const hrFilter = searchParams.get("hrFilter") || "all"
 
+    // Scope by vendor: super_admin sees all; vendor sees only their HRs' candidates
+    let vendorWhere = {}
+    let vendorIdForHrList = null
+    const auth = request.headers.get("authorization")?.replace("Bearer ", "")
+    if (auth) {
+      const session = await prisma.session.findFirst({
+        where: { sessionToken: auth, expiresAt: { gt: new Date() } },
+        include: { adminUser: true },
+      })
+      if (session?.adminUser?.role === "vendor") {
+        vendorIdForHrList = session.adminUserId
+        const vendorHrs = await prisma.hr.findMany({
+          where: { vendorId: session.adminUserId },
+          select: { id: true },
+        })
+        const vendorHrIds = vendorHrs.map((h) => h.id)
+        vendorWhere = vendorHrIds.length > 0 ? { addedByHrId: { in: vendorHrIds } } : { addedByHrId: { in: [-1] } }
+      }
+    }
+
     if (period === "today") {
       const { start, end } = getStartEndToday()
+      const todayWhere = { ...vendorWhere, createdAt: { gte: start, lt: end } }
+      const todayHiredWhere = { ...vendorWhere, status: "hired", updatedAt: { gte: start, lt: end } }
+      let scheduleTodayWhere = { createdAt: { gte: start, lt: end } }
+      if (Object.keys(vendorWhere).length > 0) {
+        const todayCandidateIds = await prisma.candidate.findMany({ where: todayWhere, select: { id: true } }).then((r) => r.map((c) => c.id))
+        if (todayCandidateIds.length === 0) scheduleTodayWhere.candidateId = { in: [-1] }
+        else scheduleTodayWhere.candidateId = { in: todayCandidateIds }
+      }
       const [candidatesAddedToday, interviewsScheduledToday, hiredToday] = await Promise.all([
-        prisma.candidate.count({ where: { createdAt: { gte: start, lt: end } } }),
-        scheduleModel
-          ? scheduleModel.count({ where: { createdAt: { gte: start, lt: end } } })
-          : Promise.resolve(0),
-        prisma.candidate.count({
-          where: {
-            status: "hired",
-            updatedAt: { gte: start, lt: end },
-          },
-        }),
+        prisma.candidate.count({ where: todayWhere }),
+        scheduleModel ? scheduleModel.count({ where: scheduleTodayWhere }) : Promise.resolve(0),
+        prisma.candidate.count({ where: todayHiredWhere }),
       ])
       return NextResponse.json({
         period: "today",
@@ -89,31 +110,36 @@ export async function GET(request) {
     const NOT_SELECTED_STATUS = "attended-interview-not-selected"
 
     const hrWhere = hrFilter === "all" ? {} : { addedByHrId: hrFilter === "not_assigned" ? null : parseInt(hrFilter, 10) }
+    const baseWhere = { ...vendorWhere, ...hrWhere }
     let candidateIdsForHr = []
     if (hrFilter !== "all") {
-      const list = await prisma.candidate.findMany({ where: hrWhere, select: { id: true } })
+      const list = await prisma.candidate.findMany({ where: baseWhere, select: { id: true } })
       candidateIdsForHr = list.map((c) => c.id)
     }
     const scheduleWhere = { createdAt: { gte: start, lt: end } }
     if (hrFilter !== "all") scheduleWhere.candidateId = { in: candidateIdsForHr.length ? candidateIdsForHr : [-1] }
+    else if (Object.keys(vendorWhere).length > 0) {
+      const allVendorCandidateIds = await prisma.candidate.findMany({ where: vendorWhere, select: { id: true } }).then((r) => r.map((c) => c.id))
+      scheduleWhere.candidateId = allVendorCandidateIds.length ? { in: allVendorCandidateIds } : { in: [-1] }
+    }
 
     const [candidates, hiredCandidates, schedulesCount, allHiredInPeriod, candidatesInPeriodByStatus, schedulesInPeriod, hiredWithSchedule, hrList] = await Promise.all([
       prisma.candidate.findMany({
-        where: { createdAt: { gte: start, lt: end }, ...hrWhere },
+        where: { createdAt: { gte: start, lt: end }, ...baseWhere },
         select: { id: true, addedByHrId: true, addedByHr: { select: { id: true, name: true, email: true } } },
       }),
       prisma.candidate.findMany({
-        where: { status: "hired", updatedAt: { gte: start, lt: end }, ...hrWhere },
+        where: { status: "hired", updatedAt: { gte: start, lt: end }, ...baseWhere },
         select: { id: true, name: true, updatedAt: true, addedByHrId: true, addedByHr: { select: { id: true, name: true, email: true } } },
       }),
       scheduleModel ? scheduleModel.count({ where: scheduleWhere }) : Promise.resolve(0),
       prisma.candidate.findMany({
-        where: { status: "hired", ...hrWhere },
+        where: { status: "hired", ...baseWhere },
         select: { id: true, updatedAt: true },
       }),
       prisma.candidate.findMany({
         where: {
-          ...hrWhere,
+          ...baseWhere,
           OR: [
             { createdAt: { gte: start, lt: end } },
             { updatedAt: { gte: start, lt: end }, status: { in: ["hired", ...BACKED_OUT_STATUSES, NOT_SELECTED_STATUS] } },
@@ -128,10 +154,13 @@ export async function GET(request) {
           })
         : Promise.resolve([]),
       prisma.candidate.findMany({
-        where: { status: "hired", updatedAt: { gte: start, lt: end }, ...hrWhere },
+        where: { status: "hired", updatedAt: { gte: start, lt: end }, ...baseWhere },
         select: { id: true },
       }),
-      prisma.hr.findMany({ select: { id: true, name: true, email: true } }).catch(() => []),
+      prisma.hr.findMany({
+        where: vendorIdForHrList != null ? { vendorId: vendorIdForHrList } : {},
+        select: { id: true, name: true, email: true },
+      }).catch(() => []),
     ])
 
     const candidateIdsWithScheduleInPeriod = new Set(schedulesInPeriod.map((s) => s.candidateId))

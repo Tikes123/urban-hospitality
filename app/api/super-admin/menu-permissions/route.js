@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { VENDOR_MENU_ITEMS, VENDOR_DROPDOWN_ITEMS } from "@/lib/vendorMenuConfig"
+import { VENDOR_MENU_ITEMS, VENDOR_DROPDOWN_ITEMS, FEATURE_KEYS, ACTION_ITEM_KEYS, getDefaultAllowedMap } from "@/lib/vendorMenuConfig"
 
-const ALL_MENU_ITEMS = [...VENDOR_MENU_ITEMS, ...VENDOR_DROPDOWN_ITEMS]
+const ALL_MENU_ITEMS = [
+  ...VENDOR_MENU_ITEMS,
+  ...VENDOR_DROPDOWN_ITEMS,
+  ...FEATURE_KEYS.map((f) => ({ ...f, path: "—" })),
+  ...ACTION_ITEM_KEYS.map((a) => ({ ...a, path: "—" })),
+]
 
 function requireSuperAdmin(request) {
   const auth = request.headers.get("authorization")?.replace("Bearer ", "")
@@ -29,8 +34,7 @@ export async function GET(request) {
     const permissions = await prisma.adminUserMenuPermission.findMany({
       where: { adminUserId: id },
     })
-    const allowedMap = {}
-    ALL_MENU_ITEMS.forEach((m) => { allowedMap[m.menuKey] = true })
+    const allowedMap = getDefaultAllowedMap()
     permissions.forEach((p) => { allowedMap[p.menuKey] = p.allowed })
 
     const items = ALL_MENU_ITEMS.map((m) => ({

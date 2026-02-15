@@ -212,6 +212,7 @@ model CVLink {
   status        String    // active, expired, paused
   lastViewed    DateTime?
   sharedWith    String?   @db.Text // JSON array stored as string
+  outletIds     String?   @db.Text // JSON array of outlet ids where link was sent
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -235,8 +236,34 @@ model AdminUser {
   hrList       Hr[]
   menuPermissions AdminUserMenuPermission[]
   customLocations CustomLocation[]
+  outletTypes     OutletType[]
+  vendorPositions VendorPosition[]
 
   @@map("admin_users")
+}
+
+// Outlet type (e.g. hotel, restaurant, bar) - vendor-managed
+model OutletType {
+  id         Int       @id @default(autoincrement())
+  name       String
+  adminUserId Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  adminUser  AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@map("outlet_types")
+}
+
+// Position (job title) - vendor-managed list for candidates
+model VendorPosition {
+  id         Int       @id @default(autoincrement())
+  name       String
+  adminUserId Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  adminUser  AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_positions")
 }
 
 // Super-admin controlled: which menu items appear for this vendor
@@ -255,17 +282,32 @@ model AdminUserMenuPermission {
 
 // HR employee under a vendor - 2000 INR/month per HR
 model Hr {
-  id        Int       @id @default(autoincrement())
-  vendorId  Int       // AdminUser id (vendor)
-  name      String
-  email     String
-  phone     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  vendor    AdminUser @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  candidates Candidate[]
+  id            Int       @id @default(autoincrement())
+  vendorId      Int       // AdminUser id (vendor)
+  name          String
+  email         String
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  vendor        AdminUser @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  candidates    Candidate[]
+  menuPermissions HrMenuPermission[]
 
   @@map("hr")
+}
+
+// Per-HR permissions: vendor assigns which menu/features/actions each HR can see
+model HrMenuPermission {
+  id        Int      @id @default(autoincrement())
+  hrId      Int
+  menuKey   String   // same keys as AdminUserMenuPermission
+  allowed   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  hr        Hr       @relation(fields: [hrId], references: [id], onDelete: Cascade)
+
+  @@unique([hrId, menuKey])
+  @@map("hr_menu_permissions")
 }
 
 // App pricing - annual app price, HR monthly price (INR)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -125,6 +125,8 @@ export default function ViewApplicantsPage() {
   const [appliedDateTo, setAppliedDateTo] = useState("")
   const [updatedAtFrom, setUpdatedAtFrom] = useState("")
   const [updatedAtTo, setUpdatedAtTo] = useState("")
+  const [outletFilter, setOutletFilter] = useState([]) // outlet IDs: candidates scheduled at any of these
+  const [outletFilterSearch, setOutletFilterSearch] = useState("") // search filter for outlets
   const [isActiveFilter, setIsActiveFilter] = useState("all") // "all" | "active" | "inactive"
   const [sessionUser, setSessionUser] = useState(null) // { id, role } for activate permission
   const [inactiveModalOpen, setInactiveModalOpen] = useState(false)
@@ -179,6 +181,7 @@ export default function ViewApplicantsPage() {
     }
   })
   const [columnsPopoverOpen, setColumnsPopoverOpen] = useState(false)
+  const [allowedMap, setAllowedMap] = useState({})
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -200,6 +203,12 @@ export default function ViewApplicantsPage() {
       fetch("/api/auth/session", { headers: { Authorization: `Bearer ${t}` } })
         .then((res) => res.json())
         .then((data) => { if (data.valid && data.user) setSessionUser({ id: data.user.id, role: data.role }) })
+        .catch(() => {})
+      const hrId = typeof window !== "undefined" ? localStorage.getItem("vendor_view_as_hr_id") : null
+      const permUrl = hrId ? `/api/vendor/menu-permissions?hrId=${hrId}` : "/api/vendor/menu-permissions"
+      fetch(permUrl, { headers: { Authorization: `Bearer ${t}` } })
+        .then((res) => (res.ok ? res.json() : {}))
+        .then((data) => setAllowedMap(data.allowedMap || {}))
         .catch(() => {})
     }
     fetch("/api/candidates/positions")
@@ -470,12 +479,12 @@ export default function ViewApplicantsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo])
+  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, outletFilter])
 
   useEffect(() => {
     const t = setTimeout(() => fetchCandidates(), searchQuery ? 300 : 0)
     return () => clearTimeout(t)
-  }, [page, limit, searchQuery, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo])
+  }, [page, limit, searchQuery, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, outletFilter])
 
   const fetchCandidates = async () => {
     try {
@@ -493,6 +502,7 @@ export default function ViewApplicantsPage() {
       if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
       if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
       if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
+      outletFilter.forEach((oid) => params.append("outletIds", String(oid)))
       params.append("page", String(page))
       params.append("limit", String(limit))
 
@@ -556,6 +566,7 @@ export default function ViewApplicantsPage() {
       if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
       if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
       if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
+      outletFilter.forEach((oid) => params.append("outletIds", String(oid)))
       params.set("page", "1")
       params.set("limit", "10000")
       const res = await fetch(`/api/candidates?${params.toString()}`)
@@ -597,8 +608,14 @@ export default function ViewApplicantsPage() {
     }
   }
 
+  const filteredOutlets = useMemo(() => {
+    if (!outletFilterSearch.trim()) return outlets
+    const search = outletFilterSearch.toLowerCase()
+    return outlets.filter((o) => o.name.toLowerCase().includes(search))
+  }, [outlets, outletFilterSearch])
+
   const filteredCandidates = candidates
-  const moreFiltersCount = [locationFilter.length > 0, filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
+  const moreFiltersCount = [locationFilter.length > 0, outletFilter.length > 0, filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
 
   const handleSelectCandidate = (candidateId) => {
     setSelectedCandidates((prev) =>
@@ -625,6 +642,10 @@ export default function ViewApplicantsPage() {
   }
 
   const openScheduleModal = (candidate) => {
+    if (candidate && candidate.isActive === false) {
+      toast.error("Cannot schedule interview for an inactive candidate. Activate the candidate first.")
+      return
+    }
     setScheduleCandidate(candidate)
     setScheduleSlots([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
     setScheduleModalOpen(true)
@@ -634,12 +655,12 @@ export default function ViewApplicantsPage() {
     setScheduleSlots((prev) => [...prev, { outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
   }
 
-  const updateScheduleSlot = (index, field, value) => {
-    setScheduleSlots((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)))
-  }
-
   const removeScheduleSlot = (index) => {
     setScheduleSlots((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+  }
+
+  const updateScheduleSlot = (index, field, value) => {
+    setScheduleSlots((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)))
   }
 
   const handleScheduleSubmit = async (e) => {
@@ -647,28 +668,28 @@ export default function ViewApplicantsPage() {
     if (!scheduleCandidate) return
     const valid = scheduleSlots.filter((s) => s.outletId && s.scheduledAt)
     if (valid.length === 0) {
-      toast.error("Add at least one outlet and date/time")
+      toast.error("Add at least one slot with outlet and date/time")
       return
     }
     setScheduleSubmitting(true)
     try {
+      const slots = valid.map((s) => ({
+        outletId: parseInt(s.outletId, 10),
+        scheduledAt: new Date(s.scheduledAt).toISOString(),
+        type: s.type || null,
+        status: s.status || null,
+        remarks: s.remarks || null,
+      }))
       const res = await fetch(`/api/candidates/${scheduleCandidate.id}/schedules`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slots: valid.map((s) => ({
-            outletId: parseInt(s.outletId),
-            scheduledAt: new Date(s.scheduledAt).toISOString(),
-            type: s.type || null,
-            status: s.status || null,
-            remarks: s.remarks || null,
-          })),
-        }),
+        body: JSON.stringify({ slots }),
       })
       if (!res.ok) throw new Error((await res.json()).error || "Failed to schedule")
-      toast.success("Interview(s) scheduled")
+      toast.success(`Scheduled ${slots.length} interview(s)`)
       setScheduleModalOpen(false)
       setScheduleCandidate(null)
+      setScheduleSlots([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
       fetchCandidates()
     } catch (err) {
       toast.error(err.message || "Failed to schedule")
@@ -889,10 +910,12 @@ export default function ViewApplicantsPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Applicants</h1>
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exportingCsv}>
-              {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-              Export
-            </Button>
+            {allowedMap.export_csv !== false && (
+              <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exportingCsv}>
+                {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                Export
+              </Button>
+            )}
             <Button className="bg-green-600 hover:bg-green-700" size="sm" onClick={() => setAddModalOpen(true)}>
               <Plus className="w-4 h-4 mr-2" /> Add Candidate
             </Button>
@@ -1125,16 +1148,18 @@ export default function ViewApplicantsPage() {
             <DialogHeader>
               <DialogTitle>Schedule Interview</DialogTitle>
               <DialogDescription>
-                {scheduleCandidate ? `Schedule interview(s) for ${scheduleCandidate.name}. Add multiple outlets and dates.` : ""}
+                {scheduleCandidate ? `Schedule interview(s) for ${scheduleCandidate.name}. Add multiple slots with different outlets and times.` : ""}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleScheduleSubmit} className="space-y-4 mt-4">
               {scheduleSlots.map((slot, index) => (
-                <div key={index} className="p-4 border rounded-lg space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Slot {index + 1}</span>
+                <div key={index} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Slot {index + 1}</Label>
                     {scheduleSlots.length > 1 && (
-                      <Button type="button" variant="ghost" size="sm" onClick={() => removeScheduleSlot(index)}>Remove</Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => removeScheduleSlot(index)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1155,6 +1180,7 @@ export default function ViewApplicantsPage() {
                         type="datetime-local"
                         value={slot.scheduledAt}
                         onChange={(e) => updateScheduleSlot(index, "scheduledAt", e.target.value)}
+                        required
                       />
                     </div>
                   </div>
@@ -1172,7 +1198,7 @@ export default function ViewApplicantsPage() {
                     </div>
                     <div>
                       <Label>Status *</Label>
-                      <Select value={slot.status || "standby-cv"} onValueChange={(v) => updateScheduleSlot(index, "status", v)}>
+                      <Select value={slot.status} onValueChange={(v) => updateScheduleSlot(index, "status", v)}>
                         <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                         <SelectContent>
                           {CANDIDATE_STATUSES.filter((s) => s.value !== "all").map((s) => (
@@ -1192,8 +1218,8 @@ export default function ViewApplicantsPage() {
                   </div>
                 </div>
               ))}
-              <Button type="button" variant="outline" size="sm" onClick={addScheduleSlot}>
-                <Plus className="w-4 h-4 mr-2" /> Add another outlet / date
+              <Button type="button" variant="outline" size="sm" onClick={addScheduleSlot} className="w-full">
+                <Plus className="w-4 h-4 mr-2" /> Add another slot
               </Button>
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setScheduleModalOpen(false)}>Cancel</Button>
@@ -1414,6 +1440,12 @@ export default function ViewApplicantsPage() {
                 <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience}</p>
                 <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
                 <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
+                <p><span className="font-medium">Expected Salary:</span> {viewDetailsCandidate.salary || "—"}</p>
+                <p><span className="font-medium">Source:</span> {viewDetailsCandidate.source || "—"}</p>
+                {viewDetailsCandidate.skills && <p><span className="font-medium">Skills & Qualifications:</span> {viewDetailsCandidate.skills}</p>}
+                {viewDetailsCandidate.education && <p><span className="font-medium">Education:</span> {viewDetailsCandidate.education}</p>}
+                {viewDetailsCandidate.previousEmployer && <p><span className="font-medium">Previous Employer:</span> {viewDetailsCandidate.previousEmployer}</p>}
+                {viewDetailsCandidate.notes && <p><span className="font-medium">Internal Notes:</span> {viewDetailsCandidate.notes}</p>}
                 {viewDetailsCandidate.isActive === false && (
                   <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3">
                     <p className="font-medium text-amber-800 dark:text-amber-200">Inactive</p>
@@ -1737,7 +1769,7 @@ export default function ViewApplicantsPage() {
                 </Select>
               </div>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
+                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setOutletFilter([]); setOutletFilterSearch(""); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
                   Clear Filters
                 </Button>
                 <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
@@ -1796,6 +1828,32 @@ export default function ViewApplicantsPage() {
                         </Popover>
                       </div>
                       <div className="space-y-2">
+                        <Label>Outlet (scheduled at)</Label>
+                        <Input
+                          placeholder="Search outlets..."
+                          value={outletFilterSearch}
+                          onChange={(e) => setOutletFilterSearch(e.target.value)}
+                          className="mb-2"
+                        />
+                        <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
+                          {filteredOutlets.length === 0 ? (
+                            <span className="text-muted-foreground text-xs">No outlets found</span>
+                          ) : (
+                            filteredOutlets.map((o) => (
+                              <label key={o.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5">
+                                <Checkbox checked={outletFilter.includes(o.id)} onCheckedChange={(c) => setOutletFilter((prev) => c ? [...prev, o.id] : prev.filter((id) => id !== o.id))} />
+                                <span className="truncate flex-1">{o.name}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                        {outletFilter.length > 0 && (
+                          <Button variant="ghost" size="sm" className="w-full mt-1 text-xs" onClick={() => setOutletFilter([])}>
+                            Clear selection ({outletFilter.length})
+                          </Button>
+                        )}
+                      </div>
+                      <div className="space-y-2">
                         <Label htmlFor="filter-phone">Phone number</Label>
                         <Input id="filter-phone" placeholder="e.g. 98765..." value={filterPhone} onChange={(e) => setFilterPhone(e.target.value)} />
                       </div>
@@ -1822,7 +1880,7 @@ export default function ViewApplicantsPage() {
                         </div>
                       </div>
                       <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" size="sm" onClick={() => { setLocationFilter([]); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setLocationFilter([]); setOutletFilter([]); setOutletFilterSearch(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
                         <Button size="sm" onClick={() => setMoreFiltersOpen(false)}>Apply</Button>
                       </div>
                     </div>
@@ -1833,7 +1891,7 @@ export default function ViewApplicantsPage() {
           </CardContent>
         </Card>
 
-        {selectedCandidates.length > 0 && (
+        {allowedMap.bulk_status !== false && selectedCandidates.length > 0 && (
           <Card className="mb-4">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -1906,19 +1964,19 @@ export default function ViewApplicantsPage() {
                             <Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openShareInfo(candidate)}><Share2 className="w-4 h-4 mr-2" /> Share info</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>
-                            <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>
-                            <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openScheduleModal(candidate)}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>
-                            {candidate.isActive !== false && <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}><UserX className="w-4 h-4 mr-2" /> Mark inactive</DropdownMenuItem>}
-                            {candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}><UserCheck className="w-4 h-4 mr-2" /> Activate</DropdownMenuItem>}
-                            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
+                            {allowedMap.action_view_details !== false && <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>}
+                            {allowedMap.action_share_info !== false && <DropdownMenuItem onClick={() => openShareInfo(candidate)}><Share2 className="w-4 h-4 mr-2" /> Share info</DropdownMenuItem>}
+                            {allowedMap.action_edit !== false && <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>}
+                            {allowedMap.action_call !== false && <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>}
+                            {allowedMap.action_email !== false && <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>}
+                            {allowedMap.action_schedule_interview !== false && <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>}
+                            {allowedMap.action_download_resume !== false && <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>}
+                            {allowedMap.action_history !== false && <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>}
+                            {allowedMap.action_activate_cv_link !== false && <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>}
+                            {allowedMap.action_deactivate_cv_link !== false && <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>}
+                            {allowedMap.action_mark_inactive !== false && candidate.isActive !== false && <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}><UserX className="w-4 h-4 mr-2" /> Mark inactive</DropdownMenuItem>}
+                            {allowedMap.action_activate !== false && candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}><UserCheck className="w-4 h-4 mr-2" /> Activate</DropdownMenuItem>}
+                            {allowedMap.action_delete !== false && <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -2029,7 +2087,7 @@ export default function ViewApplicantsPage() {
                             const justCopied = copiedCvLinkId === candidate.id
                             return (
                               <div className="flex items-center gap-1">
-                                <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={cvUrl}>{cvUrl}</code>
+                                <a href={cvUrl} target="_blank" rel="noopener noreferrer" className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px] text-green-600 hover:underline block" title={cvUrl}>{cvUrl}</a>
                                 {justCopied ? (
                                   <span className="text-xs text-green-600 font-medium">Copied</span>
                                 ) : (
@@ -2064,53 +2122,75 @@ export default function ViewApplicantsPage() {
                             <Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}>
-                              <Eye className="w-4 h-4 mr-2" /> View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openShareInfo(candidate)}>
-                              <Share2 className="w-4 h-4 mr-2" /> Share info
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => {
-                              setEditCandidate(candidate)
-                              setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] })
-                              setEditModalOpen(true)
-                            }}>
-                              <Edit className="w-4 h-4 mr-2" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openScheduleModal(candidate)}>
-                              <Calendar className="w-4 h-4 mr-2" /> Schedule Interview
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}>
-                              <Download className="w-4 h-4 mr-2" /> Download Resume
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
-                              <History className="w-4 h-4 mr-2" /> History
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
-                              <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
-                              <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
-                            </DropdownMenuItem>
-                            {candidate.isActive !== false && (
+                            {allowedMap.action_view_details !== false && (
+                              <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}>
+                                <Eye className="w-4 h-4 mr-2" /> View Details
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_share_info !== false && (
+                              <DropdownMenuItem onClick={() => openShareInfo(candidate)}>
+                                <Share2 className="w-4 h-4 mr-2" /> Share info
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_edit !== false && (
+                              <DropdownMenuItem onClick={() => {
+                                setEditCandidate(candidate)
+                                setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] })
+                                setEditModalOpen(true)
+                              }}>
+                                <Edit className="w-4 h-4 mr-2" /> Edit
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_call !== false && (
+                              <DropdownMenuItem asChild>
+                                <a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a>
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_email !== false && (
+                              <DropdownMenuItem asChild>
+                                <a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a>
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_schedule_interview !== false && (
+                              <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}>
+                                <Calendar className="w-4 h-4 mr-2" /> Schedule Interview
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_download_resume !== false && (
+                              <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}>
+                                <Download className="w-4 h-4 mr-2" /> Download Resume
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_history !== false && (
+                              <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
+                                <History className="w-4 h-4 mr-2" /> History
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_activate_cv_link !== false && (
+                              <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
+                                <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_deactivate_cv_link !== false && (
+                              <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
+                                <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_mark_inactive !== false && candidate.isActive !== false && (
                               <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}>
                                 <UserX className="w-4 h-4 mr-2" /> Mark inactive
                               </DropdownMenuItem>
                             )}
-                            {candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && (
+                            {allowedMap.action_activate !== false && candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && (
                               <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}>
                                 <UserCheck className="w-4 h-4 mr-2" /> Activate
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
-                              <Trash2 className="w-4 h-4 mr-2" /> Delete
-                            </DropdownMenuItem>
+                            {allowedMap.action_delete !== false && (
+                              <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

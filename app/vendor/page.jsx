@@ -30,6 +30,7 @@ import {
   Calendar,
   Edit,
   Trash2,
+  Plus,
   Loader2,
   History,
   Users,
@@ -62,13 +63,14 @@ export default function AdminDashboard() {
   const [outlets, setOutlets] = useState([])
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [scheduleCandidate, setScheduleCandidate] = useState(null)
-  const [scheduleSlots, setScheduleSlots] = useState([{ outletId: "", scheduledAt: "", type: "In-person", remarks: "" }])
+  const [scheduleSlots, setScheduleSlots] = useState([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false)
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyCandidate, setHistoryCandidate] = useState(null)
   const [historySchedules, setHistorySchedules] = useState([])
   const [historyPage, setHistoryPage] = useState(1)
   const HISTORY_PAGE_SIZE = 10
+  const [exportingCsv, setExportingCsv] = useState(false)
   const [viewDetailsOpen, setViewDetailsOpen] = useState(false)
   const [viewDetailsCandidate, setViewDetailsCandidate] = useState(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -111,6 +113,7 @@ export default function AdminDashboard() {
   const [copiedCvLinkId, setCopiedCvLinkId] = useState(null)
   const [todayStatsLoading, setTodayStatsLoading] = useState(true)
   const [cvLinks, setCvLinks] = useState([])
+  const [allowedMap, setAllowedMap] = useState({})
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -125,6 +128,18 @@ export default function AdminDashboard() {
   }, [])
 
   useEffect(() => {
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    if (t) {
+      const hrId = typeof window !== "undefined" ? localStorage.getItem("vendor_view_as_hr_id") : null
+      const permUrl = hrId ? `/api/vendor/menu-permissions?hrId=${hrId}` : "/api/vendor/menu-permissions"
+      fetch(permUrl, { headers: { Authorization: `Bearer ${t}` } })
+        .then((res) => (res.ok ? res.json() : {}))
+        .then((data) => setAllowedMap(data.allowedMap || {}))
+        .catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
     fetch("/api/candidates/positions")
       .then((res) => (res.ok ? res.json() : []))
       .then(setPositionOptions)
@@ -132,7 +147,9 @@ export default function AdminDashboard() {
   }, [])
 
   useEffect(() => {
-    fetch("/api/analytics?period=today")
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    const headers = t ? { Authorization: `Bearer ${t}` } : {}
+    fetch("/api/analytics?period=today", { headers })
       .then((res) => (res.ok ? res.json() : {}))
       .then((data) => setTodayStats(data))
       .catch(() => {})
@@ -166,6 +183,54 @@ export default function AdminDashboard() {
       toast.error("Failed to load candidates")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const escapeCsv = (v) => {
+    if (v == null || v === "") return ""
+    const s = String(v)
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+
+  const handleExportCsv = async () => {
+    setExportingCsv(true)
+    try {
+      const params = new URLSearchParams()
+      if (statusFilter !== "all") params.append("status", statusFilter)
+      positionFilter.forEach((p) => params.append("positions", p))
+      params.set("page", "1")
+      params.set("limit", "10000")
+      const res = await fetch(`/api/candidates?${params.toString()}`)
+      if (!res.ok) throw new Error("Export failed")
+      const json = await res.json()
+      const list = json.data ?? []
+      const headers = ["UID", "Name", "Phone", "Email", "Position", "Status", "Experience", "Location", "Applied Date", "Expected Salary"]
+      const rows = list.map((c) => [
+        c.id,
+        c.name,
+        c.phone,
+        c.email ?? "",
+        c.position ?? "",
+        c.status ?? "",
+        c.experience ?? "",
+        c.location ?? "",
+        c.appliedDate ?? "",
+        c.salary ?? "",
+      ])
+      const csvContent = [headers.map(escapeCsv).join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\r\n")
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `candidates-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(`Exported ${list.length} candidate(s)`)
+    } catch (err) {
+      toast.error(err.message || "Export failed")
+    } finally {
+      setExportingCsv(false)
     }
   }
 
@@ -306,6 +371,10 @@ export default function AdminDashboard() {
   }
 
   const openScheduleModal = (candidate) => {
+    if (candidate && candidate.isActive === false) {
+      toast.error("Cannot schedule interview for an inactive candidate. Activate the candidate first.")
+      return
+    }
     setScheduleCandidate(candidate)
     setScheduleSlots([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
     setScheduleModalOpen(true)
@@ -328,28 +397,28 @@ export default function AdminDashboard() {
     if (!scheduleCandidate) return
     const valid = scheduleSlots.filter((s) => s.outletId && s.scheduledAt)
     if (valid.length === 0) {
-      toast.error("Add at least one outlet and date/time")
+      toast.error("Add at least one slot with outlet and date/time")
       return
     }
     setScheduleSubmitting(true)
     try {
+      const slots = valid.map((s) => ({
+        outletId: parseInt(s.outletId, 10),
+        scheduledAt: new Date(s.scheduledAt).toISOString(),
+        type: s.type || null,
+        status: s.status || null,
+        remarks: s.remarks || null,
+      }))
       const res = await fetch(`/api/candidates/${scheduleCandidate.id}/schedules`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slots: valid.map((s) => ({
-            outletId: parseInt(s.outletId),
-            scheduledAt: new Date(s.scheduledAt).toISOString(),
-            type: s.type || null,
-            status: s.status || null,
-            remarks: s.remarks || null,
-          })),
-        }),
+        body: JSON.stringify({ slots }),
       })
       if (!res.ok) throw new Error((await res.json()).error || "Failed to schedule")
-      toast.success("Interview(s) scheduled")
+      toast.success(`Scheduled ${slots.length} interview(s)`)
       setScheduleModalOpen(false)
       setScheduleCandidate(null)
+      setScheduleSlots([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
       fetchCandidates()
     } catch (err) {
       toast.error(err.message || "Failed to schedule")
@@ -438,14 +507,16 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
-        <div className="mb-6">
-          <Button asChild variant="outline" className="gap-2">
-            <Link href="/vendor/analytics">
-              <BarChart3 className="w-4 h-4" />
-              View all analytics
-            </Link>
-          </Button>
-        </div>
+        {allowedMap.analytics !== false && (
+          <div className="mb-6">
+            <Button asChild variant="outline" className="gap-2">
+              <Link href="/vendor/analytics">
+                <BarChart3 className="w-4 h-4" />
+                View all analytics
+              </Link>
+            </Button>
+          </div>
+        )}
 
         <Card>
           <CardHeader className="bg-green-600 text-white">
@@ -529,6 +600,16 @@ export default function AdminDashboard() {
               >
                 Apply Filter
               </Button>
+              {allowedMap.export_csv !== false && (
+                <Button
+                  variant="outline"
+                  onClick={handleExportCsv}
+                  disabled={exportingCsv}
+                >
+                  {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                  Export
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => {
@@ -589,16 +670,16 @@ export default function AdminDashboard() {
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "" }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>
-                            <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>
-                            <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openScheduleModal(candidate)}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
+                            {allowedMap.action_view_details !== false && <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>}
+                            {allowedMap.action_edit !== false && <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "" }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>}
+                            {allowedMap.action_call !== false && <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>}
+                            {allowedMap.action_email !== false && <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>}
+                            {allowedMap.action_schedule_interview !== false && <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>}
+                            {allowedMap.action_download_resume !== false && <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>}
+                            {allowedMap.action_history !== false && <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>}
+                            {allowedMap.action_activate_cv_link !== false && <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>}
+                            {allowedMap.action_deactivate_cv_link !== false && <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>}
+                            {allowedMap.action_delete !== false && <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -700,7 +781,7 @@ export default function AdminDashboard() {
                             const justCopied = copiedCvLinkId === candidate.id
                             return (
                               <div className="flex items-center gap-1">
-                                <code className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]" title={cvUrl}>{cvUrl}</code>
+                                <a href={cvUrl} target="_blank" rel="noopener noreferrer" className="text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px] text-green-600 hover:underline block" title={cvUrl}>{cvUrl}</a>
                                 {justCopied ? (
                                   <span className="text-xs text-green-600 font-medium">Copied</span>
                                 ) : (
@@ -719,72 +800,60 @@ export default function AdminDashboard() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setViewDetailsCandidate(candidate)
-                                setViewDetailsOpen(true)
-                              }}
-                            >
-                              <Eye className="w-4 h-4 mr-2" /> View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => {
+                            {allowedMap.action_view_details !== false && (
+                              <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}>
+                                <Eye className="w-4 h-4 mr-2" /> View Details
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_edit !== false && (
+                              <DropdownMenuItem onClick={() => {
                                 setEditCandidate(candidate)
-                                setEditForm({
-                                  name: candidate.name,
-                                  phone: candidate.phone,
-                                  email: candidate.email || "",
-                                  position: candidate.position,
-                                  status: candidate.status,
-                                  location: candidate.location,
-                                  salary: candidate.salary || "",
-                                  attachments: candidate.attachments || [],
-                                })
+                                setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] })
                                 setEditModalOpen(true)
-                              }}
-                            >
-                              <Edit className="w-4 h-4 mr-2" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <a href={`tel:${candidate.phone}`}>
-                                <Phone className="w-4 h-4 mr-2" /> Call
-                              </a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <a href={candidate.email ? `mailto:${candidate.email}` : "#"}>
-                                <Mail className="w-4 h-4 mr-2" /> Email
-                              </a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openScheduleModal(candidate)}>
-                              <Calendar className="w-4 h-4 mr-2" /> Schedule Interview
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                candidate.resume &&
-                                window.open(
-                                  candidate.resume.startsWith("/") ? candidate.resume : candidate.resume,
-                                  "_blank"
-                                )
-                              }
-                              disabled={!candidate.resume}
-                            >
-                              <Download className="w-4 h-4 mr-2" /> Download Resume
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
-                              <History className="w-4 h-4 mr-2" /> History
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
-                              <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
-                              <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-red-600"
-                              onClick={() => handleDelete(candidate.id)}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" /> Delete
-                            </DropdownMenuItem>
+                              }}>
+                                <Edit className="w-4 h-4 mr-2" /> Edit
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_call !== false && (
+                              <DropdownMenuItem asChild>
+                                <a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a>
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_email !== false && (
+                              <DropdownMenuItem asChild>
+                                <a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a>
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_schedule_interview !== false && (
+                              <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}>
+                                <Calendar className="w-4 h-4 mr-2" /> Schedule Interview
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_download_resume !== false && (
+                              <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}>
+                                <Download className="w-4 h-4 mr-2" /> Download Resume
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_history !== false && (
+                              <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
+                                <History className="w-4 h-4 mr-2" /> History
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_activate_cv_link !== false && (
+                              <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
+                                <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_deactivate_cv_link !== false && (
+                              <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
+                                <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
+                              </DropdownMenuItem>
+                            )}
+                            {allowedMap.action_delete !== false && (
+                              <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -815,19 +884,17 @@ export default function AdminDashboard() {
             <DialogHeader>
               <DialogTitle>Schedule Interview</DialogTitle>
               <DialogDescription>
-                {scheduleCandidate
-                  ? `Schedule interview(s) for ${scheduleCandidate.name}. Add multiple outlets and dates.`
-                  : ""}
+                {scheduleCandidate ? `Schedule interview(s) for ${scheduleCandidate.name}. Add multiple slots with different outlets and times.` : ""}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleScheduleSubmit} className="space-y-4 mt-4">
               {scheduleSlots.map((slot, index) => (
-                <div key={index} className="p-4 border rounded-lg space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Slot {index + 1}</span>
+                <div key={index} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Slot {index + 1}</Label>
                     {scheduleSlots.length > 1 && (
                       <Button type="button" variant="ghost" size="sm" onClick={() => removeScheduleSlot(index)}>
-                        Remove
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     )}
                   </div>
@@ -835,14 +902,10 @@ export default function AdminDashboard() {
                     <div>
                       <Label>Outlet *</Label>
                       <Select value={slot.outletId} onValueChange={(v) => updateScheduleSlot(index, "outletId", v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select outlet" />
-                        </SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="Select outlet" /></SelectTrigger>
                         <SelectContent>
                           {outlets.map((o) => (
-                            <SelectItem key={o.id} value={String(o.id)}>
-                              {o.name}
-                            </SelectItem>
+                            <SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -853,6 +916,7 @@ export default function AdminDashboard() {
                         type="datetime-local"
                         value={slot.scheduledAt}
                         onChange={(e) => updateScheduleSlot(index, "scheduledAt", e.target.value)}
+                        required
                       />
                     </div>
                   </div>
@@ -860,9 +924,7 @@ export default function AdminDashboard() {
                     <div>
                       <Label>Interview type</Label>
                       <Select value={slot.type} onValueChange={(v) => updateScheduleSlot(index, "type", v)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="In-person">In-person</SelectItem>
                           <SelectItem value="Phone">Phone</SelectItem>
@@ -872,10 +934,8 @@ export default function AdminDashboard() {
                     </div>
                     <div>
                       <Label>Status *</Label>
-                      <Select value={slot.status || "standby-cv"} onValueChange={(v) => updateScheduleSlot(index, "status", v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
+                      <Select value={slot.status} onValueChange={(v) => updateScheduleSlot(index, "status", v)}>
+                        <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                         <SelectContent>
                           {CANDIDATE_STATUSES.filter((s) => s.value !== "all").map((s) => (
                             <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
@@ -894,19 +954,13 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               ))}
-              <Button type="button" variant="outline" size="sm" onClick={addScheduleSlot}>
-                Add another outlet / date
+              <Button type="button" variant="outline" size="sm" onClick={addScheduleSlot} className="w-full">
+                <Plus className="w-4 h-4 mr-2" /> Add another slot
               </Button>
               <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button type="button" variant="outline" onClick={() => setScheduleModalOpen(false)}>
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" onClick={() => setScheduleModalOpen(false)}>Cancel</Button>
                 <Button type="submit" disabled={scheduleSubmitting}>
-                  {scheduleSubmitting ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Calendar className="w-4 h-4 mr-2" />
-                  )}
+                  {scheduleSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Calendar className="w-4 h-4 mr-2" />}
                   Schedule
                 </Button>
               </div>
@@ -996,6 +1050,12 @@ export default function AdminDashboard() {
                 <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience || "—"}</p>
                 <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
                 <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
+                <p><span className="font-medium">Expected Salary:</span> {viewDetailsCandidate.salary || "—"}</p>
+                <p><span className="font-medium">Source:</span> {viewDetailsCandidate.source || "—"}</p>
+                {viewDetailsCandidate.skills && <p><span className="font-medium">Skills & Qualifications:</span> {viewDetailsCandidate.skills}</p>}
+                {viewDetailsCandidate.education && <p><span className="font-medium">Education:</span> {viewDetailsCandidate.education}</p>}
+                {viewDetailsCandidate.previousEmployer && <p><span className="font-medium">Previous Employer:</span> {viewDetailsCandidate.previousEmployer}</p>}
+                {viewDetailsCandidate.notes && <p><span className="font-medium">Internal Notes:</span> {viewDetailsCandidate.notes}</p>}
                 {(() => {
                   const att = viewDetailsCandidate.attachments || []
                   const firstPath = viewDetailsCandidate.resume || (att[0] && att[0].path)

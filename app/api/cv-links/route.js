@@ -17,15 +17,32 @@ export async function GET(request) {
       orderBy: { createdAt: "desc" },
     })
 
-    return NextResponse.json(cvLinks.map((link) => ({
-      ...link,
-      createdDate: link.createdDate.toISOString().split("T")[0],
-      expiryDate: link.expiryDate.toISOString().split("T")[0],
-      lastViewed: link.lastViewed?.toISOString().split("T")[0] || null,
-      sharedWith: link.sharedWith ? JSON.parse(link.sharedWith) : [],
-      createdAt: link.createdAt.toISOString(),
-      updatedAt: link.updatedAt.toISOString(),
-    })))
+    const outletIdsList = cvLinks
+      .map((l) => (l.outletIds ? JSON.parse(l.outletIds) : []))
+      .flat()
+      .filter((id, i, arr) => arr.indexOf(id) === i)
+    const outlets = outletIdsList.length
+      ? await prisma.outlet.findMany({
+          where: { id: { in: outletIdsList } },
+          select: { id: true, name: true },
+        })
+      : []
+    const outletMap = Object.fromEntries(outlets.map((o) => [o.id, o.name]))
+
+    return NextResponse.json(cvLinks.map((link) => {
+      const ids = link.outletIds ? JSON.parse(link.outletIds) : []
+      return {
+        ...link,
+        createdDate: link.createdDate.toISOString().split("T")[0],
+        expiryDate: link.expiryDate.toISOString().split("T")[0],
+        lastViewed: link.lastViewed?.toISOString().split("T")[0] || null,
+        sharedWith: link.sharedWith ? JSON.parse(link.sharedWith) : [],
+        outletIds: ids,
+        outletNames: ids.map((id) => outletMap[id] || `#${id}`),
+        createdAt: link.createdAt.toISOString(),
+        updatedAt: link.updatedAt.toISOString(),
+      }
+    }))
   } catch (error) {
     console.error("Error fetching CV links:", error)
     return NextResponse.json({ error: "Failed to fetch CV links" }, { status: 500 })
@@ -39,11 +56,12 @@ function getBaseUrl() {
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { candidateId, candidateName, position, linkId, shortUrl, fullUrl, expiryDate, sharedWith } = body
+    const { candidateId, candidateName, position, linkId, shortUrl, fullUrl, expiryDate, sharedWith, outletIds } = body
     const baseUrl = getBaseUrl().replace(/\/$/, "")
     const resolvedShortUrl = shortUrl || (linkId ? `${baseUrl}/cv/${linkId}` : "")
     const resolvedFullUrl = fullUrl || resolvedShortUrl
 
+    const outletIdsArr = Array.isArray(outletIds) ? outletIds.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id)) : []
     const cvLink = await prisma.cVLink.create({
       data: {
         candidateId: parseInt(candidateId),
@@ -57,6 +75,7 @@ export async function POST(request) {
         views: 0,
         downloads: 0,
         sharedWith: Array.isArray(sharedWith) ? JSON.stringify(sharedWith) : JSON.stringify([]),
+        outletIds: outletIdsArr.length ? JSON.stringify(outletIdsArr) : null,
       },
       include: { candidate: true },
     })
@@ -66,6 +85,8 @@ export async function POST(request) {
       createdDate: cvLink.createdDate.toISOString().split("T")[0],
       expiryDate: cvLink.expiryDate.toISOString().split("T")[0],
       sharedWith: JSON.parse(cvLink.sharedWith),
+      outletIds: outletIdsArr,
+      outletNames: outletIdsArr.length ? (await prisma.outlet.findMany({ where: { id: { in: outletIdsArr } }, select: { id: true, name: true } })).map((o) => o.name) : [],
     }, { status: 201 })
   } catch (error) {
     console.error("Error creating CV link:", error)

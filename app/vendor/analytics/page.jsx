@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -38,6 +39,7 @@ const BUCKETS = [
 ]
 
 export default function AnalyticsPage() {
+  const router = useRouter()
   const [period, setPeriod] = useState("week")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
@@ -45,13 +47,36 @@ export default function AnalyticsPage() {
   const [hrFilter, setHrFilter] = useState("all")
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [accessChecked, setAccessChecked] = useState(false)
+
+  useEffect(() => {
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    if (!t) {
+      setAccessChecked(true)
+      return
+    }
+    const hrId = typeof window !== "undefined" ? localStorage.getItem("vendor_view_as_hr_id") : null
+    const permUrl = hrId ? `/api/vendor/menu-permissions?hrId=${hrId}` : "/api/vendor/menu-permissions"
+    fetch(permUrl, { headers: { Authorization: `Bearer ${t}` } })
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((d) => {
+        if (d.allowedMap && d.allowedMap.analytics === false) {
+          router.replace("/vendor")
+          return
+        }
+        setAccessChecked(true)
+      })
+      .catch(() => setAccessChecked(true))
+  }, [router])
 
   useEffect(() => {
     setLoading(true)
     const params = new URLSearchParams({ period, bucket, hrFilter: hrFilter || "all" })
     if (from) params.set("from", from)
     if (to) params.set("to", to)
-    fetch(`/api/analytics?${params.toString()}`)
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    const headers = t ? { Authorization: `Bearer ${t}` } : {}
+    fetch(`/api/analytics?${params.toString()}`, { headers })
       .then((res) => (res.ok ? res.json() : null))
       .then(setData)
       .catch(() => setData(null))
@@ -63,6 +88,14 @@ export default function AnalyticsPage() {
     setFrom(d.toISOString().slice(0, 10))
     setTo(d.toISOString().slice(0, 10))
     setPeriod("day")
+  }
+
+  if (!accessChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      </div>
+    )
   }
 
   return (

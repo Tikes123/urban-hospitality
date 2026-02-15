@@ -54,6 +54,7 @@ export async function GET(request) {
     const appliedDateTo = searchParams.get("appliedDateTo")
     const updatedAtFrom = searchParams.get("updatedAtFrom")
     const updatedAtTo = searchParams.get("updatedAtTo")
+    const outletIds = searchParams.getAll("outletIds").map((v) => parseInt(v, 10)).filter((n) => !Number.isNaN(n))
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
     const limit = Math.min(10000, Math.max(10, parseInt(searchParams.get("limit") || "50", 10)))
 
@@ -115,6 +116,9 @@ export async function GET(request) {
         d.setHours(23, 59, 59, 999)
         where.AND = [...(where.AND || []), { updatedAt: { lte: d } }]
       }
+    }
+    if (outletIds.length > 0) {
+      where.schedules = { some: { outletId: { in: outletIds } } }
     }
 
     const [total, candidates] = await Promise.all([

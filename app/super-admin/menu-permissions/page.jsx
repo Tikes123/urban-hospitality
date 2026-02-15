@@ -133,52 +133,64 @@ export default function SuperAdminMenuPermissionsPage() {
       </Card>
 
       {selectedId != null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Menu items</CardTitle>
-            <CardDescription>
-              Show or hide each menu for this vendor. Uncheck to hide the menu name and route from their header.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingPerms ? (
-              <p className="text-muted-foreground">Loading...</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[80px]">Visible</TableHead>
-                    <TableHead>Menu name</TableHead>
-                    <TableHead>Route</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                        No menu items. Select another vendor or check the API.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    items.map((item) => (
-                      <TableRow key={item.menuKey}>
-                        <TableCell>
-                          <Checkbox
-                            checked={item.allowed}
-                            onCheckedChange={(checked) => handleToggle(item.menuKey, checked)}
-                            aria-label={`Toggle ${item.label}`}
-                          />
-                        </TableCell>
-                        <TableCell>{item.label}</TableCell>
-                        <TableCell className="font-mono text-sm text-muted-foreground">{item.path}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        <>
+          {(() => {
+            const menuItems = items.filter((i) => i.path && i.path.startsWith("/"))
+            const featureItems = items.filter((i) => ["export_csv", "bulk_status"].includes(i.menuKey))
+            const actionItems = items.filter((i) => i.menuKey.startsWith("action_"))
+            const renderTable = (list, title, description) => (
+              list.length > 0 && (
+                <Card key={title}>
+                  <CardHeader>
+                    <CardTitle>{title}</CardTitle>
+                    <CardDescription>{description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[80px]">Visible</TableHead>
+                          <TableHead>Name</TableHead>
+                          {list[0]?.path?.startsWith("/") && <TableHead>Route</TableHead>}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {list.map((item) => (
+                          <TableRow key={item.menuKey}>
+                            <TableCell>
+                              <Checkbox
+                                checked={item.allowed}
+                                onCheckedChange={(checked) => handleToggle(item.menuKey, checked)}
+                                aria-label={`Toggle ${item.label}`}
+                              />
+                            </TableCell>
+                            <TableCell>{item.label}</TableCell>
+                            {list[0]?.path?.startsWith("/") && (
+                              <TableCell className="font-mono text-sm text-muted-foreground">{item.path}</TableCell>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )
+            )
+            return (
+              <div className="space-y-6">
+                {loadingPerms ? (
+                  <Card><CardContent className="py-8"><p className="text-muted-foreground">Loading...</p></CardContent></Card>
+                ) : (
+                  <>
+                    {renderTable(menuItems, "Menu items", "Show or hide nav and dropdown menu items for this vendor.")}
+                    {renderTable(featureItems, "Features", "Control Export CSV and bulk status change for HR.")}
+                    {renderTable(actionItems, "Action menu items", "Control which row actions (View Details, Edit, Schedule, etc.) HR can see on applicants.")}
+                  </>
+                )}
+              </div>
+            )
+          })()}
+        </>
       )}
     </div>
   )

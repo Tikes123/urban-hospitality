@@ -35,6 +35,10 @@ export async function POST(request, { params }) {
     if (isNaN(id)) return NextResponse.json({ error: "Invalid candidate id" }, { status: 400 })
     if (!scheduleModel) return NextResponse.json({ error: "InterviewSchedule model not available" }, { status: 500 })
 
+    const candidate = await prisma.candidate.findUnique({ where: { id }, select: { isActive: true } })
+    if (!candidate) return NextResponse.json({ error: "Candidate not found" }, { status: 404 })
+    if (candidate.isActive === false) return NextResponse.json({ error: "Cannot schedule interview for an inactive candidate. Activate the candidate first." }, { status: 400 })
+
     const body = await request.json()
     const { slots } = body
     // slots: [{ outletId, scheduledAt, type, status, remarks }]

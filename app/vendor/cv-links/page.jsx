@@ -40,6 +40,7 @@ import { getCvLinkUrl } from "@/lib/baseUrl"
 export default function CVLinksPage() {
   const [cvLinks, setCvLinks] = useState([])
   const [candidates, setCandidates] = useState([])
+  const [outlets, setOutlets] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -49,12 +50,18 @@ export default function CVLinksPage() {
     linkId: "",
     expiryDate: "",
     sharedWith: "",
+    outletIds: [],
   })
   const [viewModalLink, setViewModalLink] = useState(null)
+  const [exportingCsv, setExportingCsv] = useState(false)
 
   useEffect(() => {
     fetchCvLinks()
     fetchCandidates()
+    fetch("/api/outlets?limit=500")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setOutlets(Array.isArray(d) ? d : (d.data || [])))
+      .catch(() => setOutlets([]))
   }, [])
 
   useEffect(() => {
@@ -115,6 +122,7 @@ export default function CVLinksPage() {
         fullUrl: cvUrl,
         expiryDate: formData.expiryDate,
         sharedWith: formData.sharedWith.split(",").map((s) => s.trim()).filter(Boolean),
+        outletIds: Array.isArray(formData.outletIds) ? formData.outletIds.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id)) : [],
       }
 
       const response = await fetch("/api/cv-links", {
@@ -162,7 +170,18 @@ export default function CVLinksPage() {
       linkId: "",
       expiryDate: "",
       sharedWith: "",
+      outletIds: [],
     })
+  }
+
+  const toggleOutlet = (outletId) => {
+    const id = parseInt(outletId, 10)
+    setFormData((prev) => ({
+      ...prev,
+      outletIds: prev.outletIds.includes(id)
+        ? prev.outletIds.filter((x) => x !== id)
+        : [...prev.outletIds, id],
+    }))
   }
 
   const getStatusBadge = (status) => {
@@ -198,13 +217,56 @@ export default function CVLinksPage() {
   const activeLinks = cvLinks.filter((link) => link.status === "active").length
   const avgViews = cvLinks.length > 0 ? Math.round(totalViews / cvLinks.length) : 0
 
+  const escapeCsv = (v) => {
+    if (v == null || v === "") return ""
+    const s = String(v)
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+
+  const handleExportCsv = () => {
+    setExportingCsv(true)
+    try {
+      const headers = ["Candidate", "Position", "Link", "Status", "Views", "Downloads", "Expires", "Outlet(s) where sent", "Shared With"]
+      const rows = filteredLinks.map((link) => [
+        link.candidateName,
+        link.position,
+        getCvLinkUrl(link.linkId),
+        link.status,
+        link.views,
+        link.downloads,
+        link.expiryDate,
+        link.outletNames && link.outletNames.length > 0 ? link.outletNames.join("; ") : "",
+        Array.isArray(link.sharedWith) ? link.sharedWith.join("; ") : (link.sharedWith || ""),
+      ])
+      const csvContent = [headers.map(escapeCsv).join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\r\n")
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `cv-links-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(`Exported ${filteredLinks.length} link(s)`)
+    } catch (err) {
+      toast.error("Export failed")
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <VendorHeader user={null} />
       <main className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Active CV Links</h1>
-          <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exportingCsv}>
+              {exportingCsv ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              Export
+            </Button>
+            <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
             setIsCreateDialogOpen(open)
             if (!open) resetForm()
           }}>
@@ -266,6 +328,26 @@ export default function CVLinksPage() {
                       onChange={(e) => setFormData({ ...formData, sharedWith: e.target.value })}
                     />
                   </div>
+                  <div>
+                    <Label>Outlet(s) where link is sent (optional)</Label>
+                    <div className="mt-2 max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
+                      {outlets.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No outlets. Add outlets first.</p>
+                      ) : (
+                        outlets.map((o) => (
+                          <label key={o.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={formData.outletIds.includes(o.id)}
+                              onChange={() => toggleOutlet(String(o.id))}
+                              className="rounded"
+                            />
+                            <span className="text-sm">{o.name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
                   <div className="flex justify-end space-x-2">
                     <Button type="button" variant="outline" onClick={() => {
                       setIsCreateDialogOpen(false)
@@ -279,6 +361,7 @@ export default function CVLinksPage() {
               </form>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -391,6 +474,7 @@ export default function CVLinksPage() {
                     <TableHead>Views</TableHead>
                     <TableHead>Downloads</TableHead>
                     <TableHead>Expires</TableHead>
+                    <TableHead>Outlet(s) where sent</TableHead>
                     <TableHead>Shared With</TableHead>
                     <TableHead className="w-12">Actions</TableHead>
                   </TableRow>
@@ -418,7 +502,7 @@ export default function CVLinksPage() {
                       <TableCell>
                         <div className="space-y-1">
                           <div className="flex items-center space-x-2">
-                            <code className="text-sm bg-gray-100 px-2 py-1 rounded">{getCvLinkUrl(link.linkId)}</code>
+                            <a href={getCvLinkUrl(link.linkId)} target="_blank" rel="noopener noreferrer" className="text-sm bg-gray-100 px-2 py-1 rounded text-green-600 hover:underline">{getCvLinkUrl(link.linkId)}</a>
                             <Button variant="ghost" size="sm" onClick={() => copyToClipboard(getCvLinkUrl(link.linkId))}>
                               <Copy className="w-3 h-3" />
                             </Button>
@@ -443,6 +527,13 @@ export default function CVLinksPage() {
                         <div className="text-sm">
                           {link.expiryDate}
                           {link.status === "expired" && <div className="text-xs text-red-600">Expired</div>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm text-muted-foreground max-w-[160px]">
+                          {link.outletNames && link.outletNames.length > 0
+                            ? link.outletNames.join(", ")
+                            : "—"}
                         </div>
                       </TableCell>
                       <TableCell>
