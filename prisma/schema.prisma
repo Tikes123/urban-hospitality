@@ -29,11 +29,13 @@ model Client {
   services      String    // JSON array stored as string
   notes         String?   @db.Text
   lastContact   DateTime?
+  contractFile  String?   // File path/URL for uploaded contract
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   // Relations
   outletList    Outlet[]
+  requirements  ClientRequirement[]
 
   @@map("clients")
 }
@@ -62,6 +64,7 @@ model Outlet {
   client        Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
   schedules     InterviewSchedule[]
   jobPostings   JobPosting[]
+  requirements  ClientRequirement[]
 
   @@map("outlets")
 }
@@ -220,6 +223,32 @@ model CVLink {
   candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   @@map("cv_links")
+}
+
+// Client Requirement model - job requirements for clients/outlets
+model ClientRequirement {
+  id            Int       @id @default(autoincrement())
+  clientId      Int
+  outletId      Int?      // Optional - requirement can be for specific outlet
+  designationId Int?       // From Designation or VendorPosition
+  designation   String    // Job title/position name
+  numberOfOpenings Int    // No. of requirement
+  gender        String?   // "male", "female", "both"
+  minSalary     Float?
+  maxSalary     Float?
+  perks         String    @db.Text // JSON array: ["food", "accommodation", ...]
+  bothAvailable String?   // Dropdown value
+  jdFile        String?   // Job description file path
+  status        String    // "ongoing", "completed", "pending", "closed"
+  remark        String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  outlet        Outlet?   @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@map("client_requirements")
 }
 
 // Vendor (formerly Admin) - uses app for ATS; only super-admin can create vendor accounts

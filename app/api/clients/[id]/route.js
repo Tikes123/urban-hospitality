@@ -26,7 +26,7 @@ export async function PUT(request, { params }) {
   try {
     const id = parseInt(params.id)
     const body = await request.json()
-    const { name, type, contactPerson, email, phone, address, outlets, employees, contractValue, contractStart, contractEnd, status, rating, services, notes, lastContact } = body
+    const { name, type, contactPerson, email, phone, address, outlets, employees, contractValue, contractStart, contractEnd, status, rating, services, notes, lastContact, contractFile } = body
 
     const client = await prisma.client.update({
       where: { id },
@@ -47,6 +47,7 @@ export async function PUT(request, { params }) {
         services: Array.isArray(services) ? JSON.stringify(services) : undefined,
         notes,
         lastContact: lastContact ? new Date(lastContact) : null,
+        contractFile: contractFile !== undefined ? contractFile : undefined,
       },
       include: { outletList: true },
     })

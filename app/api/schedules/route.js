@@ -1,19 +1,39 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-// GET /api/schedules?from=YYYY-MM-DD&to=YYYY-MM-DD - for calendar
+// GET /api/schedules?from=YYYY-MM-DD&to=YYYY-MM-DD&candidateIds=1,2,3&outletId=1 - for calendar or outlet view
 export async function GET(request) {
   try {
     const searchParams = request.nextUrl.searchParams
     const fromStr = searchParams.get("from")
     const toStr = searchParams.get("to")
-    const from = fromStr ? new Date(fromStr + "T00:00:00.000Z") : new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-    const to = toStr ? new Date(toStr + "T23:59:59.999Z") : new Date(from.getFullYear(), from.getMonth() + 1, 0, 23, 59, 59)
+    const candidateIdsStr = searchParams.get("candidateIds")
+    const outletIdStr = searchParams.get("outletId")
+    
+    const where = {}
+    
+    if (fromStr || toStr) {
+      const from = fromStr ? new Date(fromStr + "T00:00:00.000Z") : new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+      const to = toStr ? new Date(toStr + "T23:59:59.999Z") : new Date(from.getFullYear(), from.getMonth() + 1, 0, 23, 59, 59)
+      where.scheduledAt = { gte: from, lte: to }
+    }
+    
+    if (candidateIdsStr) {
+      const candidateIds = candidateIdsStr.split(",").map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+      if (candidateIds.length > 0) {
+        where.candidateId = { in: candidateIds }
+      }
+    }
+    
+    if (outletIdStr) {
+      const outletId = parseInt(outletIdStr, 10)
+      if (!isNaN(outletId)) {
+        where.outletId = outletId
+      }
+    }
 
     const schedules = await prisma.interviewSchedule.findMany({
-      where: {
-        scheduledAt: { gte: from, lte: to },
-      },
+      where,
       include: {
         candidate: true,
         outlet: true,

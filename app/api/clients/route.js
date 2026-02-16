@@ -53,7 +53,7 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { name, type, contactPerson, email, phone, address, outlets, employees, contractValue, contractStart, contractEnd, status, rating, services, notes, lastContact } = body
+    const { name, type, contactPerson, email, phone, address, outlets, employees, contractValue, contractStart, contractEnd, status, rating, services, notes, lastContact, contractFile } = body
 
     const client = await prisma.client.create({
       data: {
@@ -73,6 +73,7 @@ export async function POST(request) {
         services: Array.isArray(services) ? JSON.stringify(services) : JSON.stringify([]),
         notes: notes || null,
         lastContact: lastContact ? new Date(lastContact) : null,
+        contractFile: contractFile || null,
       },
       include: { outletList: true },
     })

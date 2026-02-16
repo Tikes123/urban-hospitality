@@ -114,8 +114,8 @@ export default function ViewApplicantsPage() {
   const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: [], salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
-  const [filterLocation, setFilterLocation] = useState("")
-  const [locationFilter, setLocationFilter] = useState([]) // multi-select; empty = all
+  const [filterLocation, setFilterLocation] = useState("") // single select: empty string = all
+  const [locationFilter, setLocationFilter] = useState([]) // keep for backward compatibility but not used
   const [locationDropdownOpen, setLocationDropdownOpen] = useState(false)
   const [locationSearchInput, setLocationSearchInput] = useState("")
   const [filterPhone, setFilterPhone] = useState("")
@@ -125,7 +125,8 @@ export default function ViewApplicantsPage() {
   const [appliedDateTo, setAppliedDateTo] = useState("")
   const [updatedAtFrom, setUpdatedAtFrom] = useState("")
   const [updatedAtTo, setUpdatedAtTo] = useState("")
-  const [outletFilter, setOutletFilter] = useState([]) // outlet IDs: candidates scheduled at any of these
+  const [outletFilter, setOutletFilter] = useState([]) // keep for backward compatibility but not used
+  const [filterOutlet, setFilterOutlet] = useState("") // single select: empty string = all
   const [outletFilterSearch, setOutletFilterSearch] = useState("") // search filter for outlets
   const [isActiveFilter, setIsActiveFilter] = useState("all") // "all" | "active" | "inactive"
   const [sessionUser, setSessionUser] = useState(null) // { id, role } for activate permission
@@ -479,12 +480,12 @@ export default function ViewApplicantsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, outletFilter])
+  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
 
   useEffect(() => {
     const t = setTimeout(() => fetchCandidates(), searchQuery ? 300 : 0)
     return () => clearTimeout(t)
-  }, [page, limit, searchQuery, positionFilter, locationFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, outletFilter])
+  }, [page, limit, searchQuery, positionFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
 
   const fetchCandidates = async () => {
     try {
@@ -502,7 +503,23 @@ export default function ViewApplicantsPage() {
       if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
       if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
       if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
-      outletFilter.forEach((oid) => params.append("outletIds", String(oid)))
+      if (filterOutlet.trim()) {
+        // If filterOutlet is a location string (not numeric), find matching outlet IDs
+        const outletIdMatch = filterOutlet.trim().match(/^\d+$/)
+        if (outletIdMatch) {
+          // It's a numeric ID, use it directly
+          params.append("outletIds", filterOutlet.trim())
+        } else {
+          // It's a location string, find outlets matching this location
+          const matchingOutlets = outlets.filter((o) => 
+            (o.area && String(o.area).trim().toLowerCase() === filterOutlet.trim().toLowerCase()) ||
+            (o.address && String(o.address).trim().toLowerCase().includes(filterOutlet.trim().toLowerCase()))
+          )
+          if (matchingOutlets.length > 0) {
+            matchingOutlets.forEach((o) => params.append("outletIds", String(o.id)))
+          }
+        }
+      }
       params.append("page", String(page))
       params.append("limit", String(limit))
 
@@ -566,7 +583,23 @@ export default function ViewApplicantsPage() {
       if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
       if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
       if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
-      outletFilter.forEach((oid) => params.append("outletIds", String(oid)))
+      if (filterOutlet.trim()) {
+        // If filterOutlet is a location string (not numeric), find matching outlet IDs
+        const outletIdMatch = filterOutlet.trim().match(/^\d+$/)
+        if (outletIdMatch) {
+          // It's a numeric ID, use it directly
+          params.append("outletIds", filterOutlet.trim())
+        } else {
+          // It's a location string, find outlets matching this location
+          const matchingOutlets = outlets.filter((o) => 
+            (o.area && String(o.area).trim().toLowerCase() === filterOutlet.trim().toLowerCase()) ||
+            (o.address && String(o.address).trim().toLowerCase().includes(filterOutlet.trim().toLowerCase()))
+          )
+          if (matchingOutlets.length > 0) {
+            matchingOutlets.forEach((o) => params.append("outletIds", String(o.id)))
+          }
+        }
+      }
       params.set("page", "1")
       params.set("limit", "10000")
       const res = await fetch(`/api/candidates?${params.toString()}`)
@@ -608,14 +641,8 @@ export default function ViewApplicantsPage() {
     }
   }
 
-  const filteredOutlets = useMemo(() => {
-    if (!outletFilterSearch.trim()) return outlets
-    const search = outletFilterSearch.toLowerCase()
-    return outlets.filter((o) => o.name.toLowerCase().includes(search))
-  }, [outlets, outletFilterSearch])
-
   const filteredCandidates = candidates
-  const moreFiltersCount = [locationFilter.length > 0, outletFilter.length > 0, filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
+  const moreFiltersCount = [filterLocation.trim(), filterOutlet.trim(), filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
 
   const handleSelectCandidate = (candidateId) => {
     setSelectedCandidates((prev) =>
@@ -1769,7 +1796,7 @@ export default function ViewApplicantsPage() {
                 </Select>
               </div>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setOutletFilter([]); setOutletFilterSearch(""); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
+                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterOutlet(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
                   Clear Filters
                 </Button>
                 <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
@@ -1781,77 +1808,31 @@ export default function ViewApplicantsPage() {
                       <h4 className="font-medium">More filters</h4>
                       <div className="space-y-2">
                         <Label>Location</Label>
-                        <Popover open={locationDropdownOpen} onOpenChange={setLocationDropdownOpen}>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className="w-full justify-between font-normal min-h-10 flex-wrap h-auto py-2 gap-1">
-                              <span className="truncate text-left">
-                                {locationFilter.length === 0 ? "All locations" : locationFilter.length === 1 ? locationFilter[0] : `${locationFilter.length} locations`}
-                              </span>
-                              <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
-                            <Input placeholder="Type to search or add..." value={locationSearchInput} onChange={(e) => setLocationSearchInput(e.target.value)} className="mb-2 h-9" />
-                            <div className="max-h-60 overflow-y-auto space-y-1">
-                              {locationSearchInput.trim() && !locationOptions.some((l) => l.toLowerCase() === locationSearchInput.trim().toLowerCase()) && !locationFilter.some((l) => l.toLowerCase() === locationSearchInput.trim().toLowerCase()) && (
-                                <button
-                                  type="button"
-                                  className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent"
-                                  onClick={async () => {
-                                    const val = locationSearchInput.trim()
-                                    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
-                                    if (token) {
-                                      try {
-                                        const r = await fetch("/api/outlets/locations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ value: val }) })
-                                        if (r.ok) {
-                                          const list = await fetch("/api/outlets/locations").then((res) => (res.ok ? res.json() : []))
-                                          setLocationOptions(list)
-                                          setLocationFilter((prev) => [...prev, val])
-                                        } else setLocationFilter((prev) => [...prev, val])
-                                      } catch { setLocationFilter((prev) => [...prev, val]) }
-                                    } else setLocationFilter((prev) => [...prev, val])
-                                    setLocationSearchInput("")
-                                  }}
-                                >
-                                  <Plus className="h-4 w-4 shrink-0" /> Add &quot;{locationSearchInput.trim()}&quot;
-                                </button>
-                              )}
-                              {locationOptions.filter((loc) => !locationSearchInput.trim() || loc.toLowerCase().includes(locationSearchInput.toLowerCase())).map((loc) => (
-                                <label key={loc} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent">
-                                  <Checkbox checked={locationFilter.includes(loc)} onCheckedChange={(c) => setLocationFilter((prev) => (c ? [...prev, loc] : prev.filter((l) => l !== loc)))} />
-                                  <span className="truncate">{loc}</span>
-                                </label>
-                              ))}
-                            </div>
-                            {locationFilter.length > 0 && <Button variant="ghost" size="sm" className="w-full mt-2" onClick={() => setLocationFilter([])}>Clear selection</Button>}
-                          </PopoverContent>
-                        </Popover>
+                        <Select value={filterLocation || "all"} onValueChange={(value) => setFilterLocation(value === "all" ? "" : value)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All locations" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All locations</SelectItem>
+                            {locationOptions.map((loc) => (
+                              <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-2">
                         <Label>Outlet (scheduled at)</Label>
-                        <Input
-                          placeholder="Search outlets..."
-                          value={outletFilterSearch}
-                          onChange={(e) => setOutletFilterSearch(e.target.value)}
-                          className="mb-2"
-                        />
-                        <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
-                          {filteredOutlets.length === 0 ? (
-                            <span className="text-muted-foreground text-xs">No outlets found</span>
-                          ) : (
-                            filteredOutlets.map((o) => (
-                              <label key={o.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5">
-                                <Checkbox checked={outletFilter.includes(o.id)} onCheckedChange={(c) => setOutletFilter((prev) => c ? [...prev, o.id] : prev.filter((id) => id !== o.id))} />
-                                <span className="truncate flex-1">{o.name}</span>
-                              </label>
-                            ))
-                          )}
-                        </div>
-                        {outletFilter.length > 0 && (
-                          <Button variant="ghost" size="sm" className="w-full mt-1 text-xs" onClick={() => setOutletFilter([])}>
-                            Clear selection ({outletFilter.length})
-                          </Button>
-                        )}
+                        <Select value={filterOutlet || "all"} onValueChange={(value) => setFilterOutlet(value === "all" ? "" : value)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All locations" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All locations</SelectItem>
+                            {locationOptions.map((loc) => (
+                              <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="filter-phone">Phone number</Label>
@@ -1880,7 +1861,7 @@ export default function ViewApplicantsPage() {
                         </div>
                       </div>
                       <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" size="sm" onClick={() => { setLocationFilter([]); setOutletFilter([]); setOutletFilterSearch(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setFilterLocation(""); setFilterOutlet(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
                         <Button size="sm" onClick={() => setMoreFiltersOpen(false)}>Apply</Button>
                       </div>
                     </div>

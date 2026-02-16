@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -42,6 +43,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
+import { ClientRequirementModal } from "@/components/vendor/client-requirement-modal"
 
 export default function ClientPage() {
   const [clients, setClients] = useState([])
@@ -56,6 +58,10 @@ export default function ClientPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingClient, setEditingClient] = useState(null)
+  const [isRequirementModalOpen, setIsRequirementModalOpen] = useState(false)
+  const [selectedClientForRequirement, setSelectedClientForRequirement] = useState(null)
+  const [requirements, setRequirements] = useState([])
+  const [requirementsLoading, setRequirementsLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     type: "",
@@ -164,6 +170,26 @@ export default function ClientPage() {
     }
   }
 
+  const handleAddRequirement = (client) => {
+    setSelectedClientForRequirement(client)
+    setIsRequirementModalOpen(true)
+  }
+
+  const handleRequirementSuccess = () => {
+    // Refresh clients list to show updated requirement count if needed
+    fetchClients()
+  }
+
+  const handleAddRequirement = (client) => {
+    setSelectedClientForRequirement(client)
+    setIsRequirementModalOpen(true)
+  }
+
+  const handleRequirementSuccess = () => {
+    // Refresh clients list to show updated requirement count if needed
+    fetchClients()
+  }
+
   const handleEdit = (client) => {
     setEditingClient(client)
     setFormData({
@@ -255,16 +281,23 @@ export default function ClientPage() {
       <main className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Client Management</h1>
-          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
-            setIsAddDialogOpen(open)
-            if (!open) resetForm()
-          }}>
-            <DialogTrigger asChild>
-              <Button className="bg-green-600 hover:bg-green-700">
+          <div className="flex gap-2">
+            <Button asChild variant="outline">
+              <Link href="/vendor/add-outlet-client">
                 <Plus className="w-4 h-4 mr-2" />
-                Add New Client
-              </Button>
-            </DialogTrigger>
+                Add Client & Outlet
+              </Link>
+            </Button>
+            <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+              setIsAddDialogOpen(open)
+              if (!open) resetForm()
+            }}>
+              <DialogTrigger asChild>
+                <Button className="bg-green-600 hover:bg-green-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add New Client
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Client</DialogTitle>
@@ -691,7 +724,8 @@ export default function ClientPage() {
               </form>
             </DialogContent>
           </Dialog>
-        </div>
+            </div>
+          </div>
 
         {/* Stats Cards */}
         <div className="grid md:grid-cols-4 gap-4 mb-6">
@@ -924,6 +958,10 @@ export default function ClientPage() {
                               <Building className="w-4 h-4 mr-2" />
                               View Outlets
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAddRequirement(client)}>
+                              <Plus className="w-4 h-4 mr-2" />
+                              Add Requirement
+                            </DropdownMenuItem>
                             <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(client.id)}>
                               <Trash2 className="w-4 h-4 mr-2" />
                               Delete Client
@@ -951,6 +989,14 @@ export default function ClientPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Requirements Modal */}
+        <ClientRequirementModal
+          open={isRequirementModalOpen}
+          onOpenChange={setIsRequirementModalOpen}
+          clientId={selectedClientForRequirement?.id}
+          onSuccess={handleRequirementSuccess}
+        />
       </main>
     </div>
   )
