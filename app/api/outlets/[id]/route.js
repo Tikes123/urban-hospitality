@@ -22,7 +22,7 @@ export async function PUT(request, { params }) {
     const { id: rawId } = await params
     const id = parseInt(rawId)
     const body = await request.json()
-    const { name, type, area, address, phone, email, manager, employees, openPositions, rating, status, description, image, clientId } = body
+    const { name, type, area, address, phone, email, manager, employees, openPositions, rating, status, description, image, googleMapLocation, clientId } = body
     const outlet = await prisma.outlet.update({
       where: { id },
       data: {
@@ -39,6 +39,7 @@ export async function PUT(request, { params }) {
         status,
         description,
         image,
+        googleMapLocation: googleMapLocation !== undefined ? (googleMapLocation || null) : undefined,
         clientId: clientId !== undefined ? (clientId ? parseInt(clientId) : null) : undefined,
       },
       include: { client: true },

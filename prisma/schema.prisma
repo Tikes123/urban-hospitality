@@ -56,6 +56,7 @@ model Outlet {
   status         String    // active, maintenance, inactive
   description    String?   @db.Text
   image          String?
+  googleMapLocation String? // Google Maps URL or embed link
   clientId       Int?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

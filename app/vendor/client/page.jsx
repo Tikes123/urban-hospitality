@@ -180,16 +180,6 @@ export default function ClientPage() {
     fetchClients()
   }
 
-  const handleAddRequirement = (client) => {
-    setSelectedClientForRequirement(client)
-    setIsRequirementModalOpen(true)
-  }
-
-  const handleRequirementSuccess = () => {
-    // Refresh clients list to show updated requirement count if needed
-    fetchClients()
-  }
-
   const handleEdit = (client) => {
     setEditingClient(client)
     setFormData({

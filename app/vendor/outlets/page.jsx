@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { VendorHeader } from "@/components/vendor/vendor-header"
 import {
   Building,
@@ -16,16 +17,18 @@ import {
   Eye,
   Link2,
   X,
+  ChevronDown,
 } from "lucide-react"
 import { toast } from "sonner"
 
 export default function OutletsPage() {
   const [outlets, setOutlets] = useState([])
   const [loading, setLoading] = useState(true)
+  const hasAutoSelectedRef = useRef(false)
   
   // Outlet selection and applicant data
-  const [selectedOutletId, setSelectedOutletId] = useState(null)
-  const [selectedOutlet, setSelectedOutlet] = useState(null)
+  const [selectedOutletIds, setSelectedOutletIds] = useState([]) // Array of outlet IDs
+  const [selectedOutlets, setSelectedOutlets] = useState([]) // Array of outlet objects
       const [candidates, setCandidates] = useState([])
       const [candidatesLoading, setCandidatesLoading] = useState(false)
       const [selectedCandidates, setSelectedCandidates] = useState([])
@@ -45,20 +48,62 @@ export default function OutletsPage() {
   }, [])
 
   useEffect(() => {
-    if (selectedOutletId) {
-      fetchCandidatesForOutlet()
+    if (selectedOutletIds.length > 0) {
+      fetchCandidatesForOutlets()
     } else {
       setCandidates([])
       setSelectedCandidates([])
     }
-  }, [selectedOutletId, candidatesPage, candidatesLimit])
+  }, [selectedOutletIds, candidatesPage, candidatesLimit])
 
-  const fetchCandidatesForOutlet = async () => {
-    if (!selectedOutletId) return
+  // Auto-select most tagged outlets (minimum 2) on load
+  useEffect(() => {
+    if (outlets.length > 0 && selectedOutletIds.length === 0 && !loading && !hasAutoSelectedRef.current) {
+      hasAutoSelectedRef.current = true
+      fetchMostTaggedOutlets()
+    }
+  }, [outlets, loading])
+
+  const fetchMostTaggedOutlets = async () => {
+    try {
+      // Fetch all schedules to count which outlets have the most schedules
+      const schedulesResponse = await fetch(`/api/schedules`)
+      if (!schedulesResponse.ok) return
+      const schedulesData = await schedulesResponse.json()
+      const schedules = Array.isArray(schedulesData) ? schedulesData : []
+      
+      // Count schedules per outlet
+      const outletCounts = {}
+      schedules.forEach((s) => {
+        if (s.outletId) {
+          outletCounts[s.outletId] = (outletCounts[s.outletId] || 0) + 1
+        }
+      })
+      
+      // Sort outlets by schedule count (descending) and get top outlets
+      const sortedOutlets = Object.entries(outletCounts)
+        .sort(([, a], [, b]) => b - a)
+        .map(([outletId]) => parseInt(outletId, 10))
+        .filter((id) => outlets.some((o) => o.id === id))
+      
+      // Select minimum 2, or all if less than 2
+      const toSelect = sortedOutlets.length >= 2 ? sortedOutlets.slice(0, Math.max(2, sortedOutlets.length)) : sortedOutlets
+      
+      if (toSelect.length > 0) {
+        setSelectedOutletIds(toSelect)
+        setSelectedOutlets(outlets.filter((o) => toSelect.includes(o.id)))
+      }
+    } catch (error) {
+      console.error("Error fetching most tagged outlets:", error)
+    }
+  }
+
+  const fetchCandidatesForOutlets = async () => {
+    if (selectedOutletIds.length === 0) return
     try {
       setCandidatesLoading(true)
       const params = new URLSearchParams()
-      params.append("outletIds", selectedOutletId)
+      selectedOutletIds.forEach((id) => params.append("outletIds", String(id)))
       params.append("page", String(candidatesPage))
       params.append("limit", String(candidatesLimit))
       const response = await fetch(`/api/candidates?${params.toString()}`)
@@ -71,13 +116,16 @@ export default function OutletsPage() {
       // Fetch schedules for these candidates
       if (candidatesData.length > 0) {
         const candidateIds = candidatesData.map((c) => c.id)
-        const schedulesResponse = await fetch(`/api/schedules?candidateIds=${candidateIds.join(",")}&outletId=${selectedOutletId}`)
+        const schedulesResponse = await fetch(`/api/schedules?candidateIds=${candidateIds.join(",")}`)
         if (schedulesResponse.ok) {
           const schedulesData = await schedulesResponse.json()
+          const schedules = Array.isArray(schedulesData) ? schedulesData : []
           const schedulesMap = {}
-          schedulesData.forEach((s) => {
-            if (!schedulesMap[s.candidateId] || new Date(s.scheduledAt) > new Date(schedulesMap[s.candidateId].scheduledAt)) {
-              schedulesMap[s.candidateId] = s
+          schedules.forEach((s) => {
+            if (selectedOutletIds.includes(s.outletId)) {
+              if (!schedulesMap[s.candidateId] || new Date(s.scheduledAt) > new Date(schedulesMap[s.candidateId].scheduledAt)) {
+                schedulesMap[s.candidateId] = s
+              }
             }
           })
           setCandidateSchedules(schedulesMap)
@@ -91,17 +139,32 @@ export default function OutletsPage() {
     }
   }
 
-  const handleOutletSelect = (outletId) => {
-    if (!outletId || outletId === "none") {
-      setSelectedOutletId(null)
-      setSelectedOutlet(null)
-      setSelectedCandidates([])
-      setCandidatesPage(1)
-      return
+  const handleOutletToggle = (outletId) => {
+    const id = parseInt(outletId, 10)
+    setSelectedOutletIds((prev) => {
+      if (prev.includes(id)) {
+        const newIds = prev.filter((oid) => oid !== id)
+        setSelectedOutlets(outlets.filter((o) => newIds.includes(o.id)))
+        return newIds
+      } else {
+        const newIds = [...prev, id]
+        setSelectedOutlets(outlets.filter((o) => newIds.includes(o.id)))
+        return newIds
+      }
+    })
+    setSelectedCandidates([])
+    setCandidatesPage(1)
+  }
+
+  const handleSelectAllOutlets = () => {
+    if (selectedOutletIds.length === outlets.length) {
+      setSelectedOutletIds([])
+      setSelectedOutlets([])
+    } else {
+      const allIds = outlets.map((o) => o.id)
+      setSelectedOutletIds(allIds)
+      setSelectedOutlets(outlets)
     }
-    const outlet = outlets.find((o) => o.id === parseInt(outletId, 10))
-    setSelectedOutletId(parseInt(outletId, 10))
-    setSelectedOutlet(outlet || null)
     setSelectedCandidates([])
     setCandidatesPage(1)
   }
@@ -121,25 +184,28 @@ export default function OutletsPage() {
   }
 
   const handleBulkStatusUpdate = async () => {
-    if (!bulkStatus || selectedCandidates.length === 0 || !selectedOutletId) {
-      toast.error("Please select candidates and a status")
+    if (!bulkStatus || selectedCandidates.length === 0 || selectedOutletIds.length === 0) {
+      toast.error("Please select candidates, outlets, and a status")
       return
     }
     try {
-      const response = await fetch("/api/candidates/bulk-status", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidateIds: selectedCandidates,
-          status: bulkStatus,
-          outletId: selectedOutletId,
-        }),
-      })
-      if (!response.ok) throw new Error("Failed to update status")
+      // Update status for each selected outlet
+      const promises = selectedOutletIds.map((outletId) =>
+        fetch("/api/candidates/bulk-status", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateIds: selectedCandidates,
+            status: bulkStatus,
+            outletId: outletId,
+          }),
+        })
+      )
+      await Promise.all(promises)
       toast.success(`Updated status for ${selectedCandidates.length} candidate(s)`)
       setSelectedCandidates([])
       setBulkStatus("")
-      fetchCandidatesForOutlet()
+      fetchCandidatesForOutlets()
     } catch (error) {
       console.error("Error updating bulk status:", error)
       toast.error("Failed to update status")
@@ -147,25 +213,28 @@ export default function OutletsPage() {
   }
 
   const handleBulkDateUpdate = async () => {
-    if (!bulkDate || selectedCandidates.length === 0 || !selectedOutletId) {
-      toast.error("Please select candidates and a date")
+    if (!bulkDate || selectedCandidates.length === 0 || selectedOutletIds.length === 0) {
+      toast.error("Please select candidates, outlets, and a date")
       return
     }
     try {
-      const response = await fetch("/api/candidates/bulk-date", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidateIds: selectedCandidates,
-          scheduledAt: bulkDate,
-          outletId: selectedOutletId,
-        }),
-      })
-      if (!response.ok) throw new Error("Failed to update date")
+      // Update date for each selected outlet
+      const promises = selectedOutletIds.map((outletId) =>
+        fetch("/api/candidates/bulk-date", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateIds: selectedCandidates,
+            scheduledAt: bulkDate,
+            outletId: outletId,
+          }),
+        })
+      )
+      await Promise.all(promises)
       toast.success(`Updated date for ${selectedCandidates.length} candidate(s)`)
       setSelectedCandidates([])
       setBulkDate("")
-      fetchCandidatesForOutlet()
+      fetchCandidatesForOutlets()
     } catch (error) {
       console.error("Error updating bulk date:", error)
       toast.error("Failed to update date")
@@ -218,36 +287,106 @@ export default function OutletsPage() {
         <Card className="mb-6">
           <CardContent className="p-4">
             <div className="space-y-4">
-              <Label className="text-lg font-semibold">Outlets</Label>
-              <Select value={selectedOutletId ? String(selectedOutletId) : "none"} onValueChange={handleOutletSelect}>
-                <SelectTrigger className="h-12 text-base">
-                  <SelectValue placeholder="Search and select an outlet to view applicants..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">-- Select an outlet --</SelectItem>
-                  {outlets.map((outlet) => (
-                    <SelectItem key={outlet.id} value={String(outlet.id)}>
-                      {outlet.id} - {outlet.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedOutlet && (
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">Selected: {selectedOutlet.name}</span>
-                    <Button variant="ghost" size="sm" onClick={() => handleOutletSelect(null)}>
-                      <X className="w-4 h-4" />
-                    </Button>
+              <Label className="text-lg font-semibold">Select Outlets</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-between h-12 text-base"
+                    disabled={loading}
+                  >
+                    <span className="truncate">
+                      {selectedOutletIds.length === 0
+                        ? "Select outlets..."
+                        : selectedOutletIds.length === 1
+                        ? selectedOutlets[0]?.name || "1 outlet selected"
+                        : `${selectedOutletIds.length} outlets selected`}
+                    </span>
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-2 pb-2 border-b">
+                      <span className="text-sm font-medium">Select Outlets</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleSelectAllOutlets}
+                      >
+                        {selectedOutletIds.length === outlets.length ? "Deselect All" : "Select All"}
+                      </Button>
+                    </div>
+                    {loading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        <span className="text-sm text-gray-500">Loading...</span>
+                      </div>
+                    ) : outlets.length === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-4">No outlets available</p>
+                    ) : (
+                      <div className="max-h-60 overflow-y-auto space-y-1">
+                        {outlets.map((outlet) => (
+                          <label
+                            key={outlet.id}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={selectedOutletIds.includes(outlet.id)}
+                              onCheckedChange={() => handleOutletToggle(outlet.id)}
+                            />
+                            <span className="truncate">
+                              {outlet.id} - {outlet.name}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {selectedOutletIds.length > 0 && (
+                      <div className="pt-2 border-t">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => {
+                            setSelectedOutletIds([])
+                            setSelectedOutlets([])
+                            setSelectedCandidates([])
+                            setCandidatesPage(1)
+                          }}
+                        >
+                          Clear selection
+                        </Button>
+                      </div>
+                    )}
                   </div>
+                </PopoverContent>
+              </Popover>
+              {selectedOutlets.length > 0 && (
+                <div className="flex items-center flex-wrap gap-2 pt-2">
+                  <span className="text-sm font-medium">Selected ({selectedOutlets.length}):</span>
+                  {selectedOutlets.map((outlet) => (
+                    <Badge key={outlet.id} variant="secondary" className="flex items-center gap-1">
+                      {outlet.name}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-4 w-4 p-0 hover:bg-transparent"
+                        onClick={() => handleOutletToggle(outlet.id)}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Bulk Actions (when outlet selected) */}
-        {selectedOutletId && (
+        {/* Bulk Actions (when outlets selected) */}
+        {selectedOutletIds.length > 0 && (
           <Card className="mb-6">
             <CardContent className="p-4">
               <div className="grid md:grid-cols-3 gap-4">
@@ -293,12 +432,12 @@ export default function OutletsPage() {
           </Card>
         )}
 
-        {/* Applicant Table (when outlet selected) */}
-        {selectedOutletId && (
+        {/* Applicant Table (when outlets selected) */}
+        {selectedOutletIds.length > 0 && (
           <Card className="mb-6">
             <CardHeader>
-              <CardTitle>Applicants for {selectedOutlet?.name}</CardTitle>
-              <CardDescription>Showing applicants scheduled at this outlet</CardDescription>
+              <CardTitle>Applicants for {selectedOutlets.length === 1 ? selectedOutlets[0]?.name : `${selectedOutlets.length} Selected Outlets`}</CardTitle>
+              <CardDescription>Showing applicants scheduled at selected outlet(s)</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="mb-4 flex items-center justify-between">
@@ -427,8 +566,8 @@ export default function OutletsPage() {
           </Card>
         )}
 
-        {/* Show message when no outlet selected */}
-        {!selectedOutletId && (
+        {/* Show message when no outlets selected */}
+        {selectedOutletIds.length === 0 && (
           <Card>
             <CardContent className="text-center py-12">
               <Building className="w-12 h-12 text-gray-400 mx-auto mb-4" />

@@ -57,15 +57,30 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { name, type, area, address, phone, email, manager, employees, openPositions, rating, status, description, image, clientId } = body
+    const { name, type, area, address, phone, email, manager, employees, openPositions, rating, status, description, image, googleMapLocation, clientId } = body
+    
+    // If clientId is provided and phone/email are empty, get from client
+    let finalPhone = phone
+    let finalEmail = email
+    if (clientId && (!phone || !email)) {
+      const client = await prisma.client.findUnique({
+        where: { id: parseInt(clientId) },
+        select: { phone: true, email: true },
+      })
+      if (client) {
+        if (!phone) finalPhone = client.phone
+        if (!email) finalEmail = client.email
+      }
+    }
+    
     const outlet = await prisma.outlet.create({
       data: {
         name,
         type,
         area: area || null,
         address,
-        phone,
-        email,
+        phone: finalPhone,
+        email: finalEmail,
         manager,
         employees: employees || 0,
         openPositions: openPositions != null ? parseInt(openPositions) : 0,
@@ -73,6 +88,7 @@ export async function POST(request) {
         status: status || "active",
         description: description || null,
         image: image || null,
+        googleMapLocation: googleMapLocation || null,
         clientId: clientId ? parseInt(clientId) : null,
       },
       include: { client: true },

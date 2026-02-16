@@ -480,12 +480,12 @@ export default function ViewApplicantsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
+  }, [searchQuery, positionFilter, filterLocation, filterPhone, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
 
   useEffect(() => {
     const t = setTimeout(() => fetchCandidates(), searchQuery ? 300 : 0)
     return () => clearTimeout(t)
-  }, [page, limit, searchQuery, positionFilter, isActiveFilter, filterLocation, filterPhone, filterCandidateId, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
+  }, [page, limit, searchQuery, positionFilter, isActiveFilter, filterLocation, filterPhone, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
 
   const fetchCandidates = async () => {
     try {
@@ -497,29 +497,12 @@ export default function ViewApplicantsPage() {
       if (isActiveFilter !== "all") params.append("isActive", isActiveFilter)
       if (filterLocation.trim()) params.append("location", filterLocation.trim())
       if (filterPhone.trim()) params.append("phone", filterPhone.trim())
-      if (filterCandidateId.trim()) params.append("candidateId", filterCandidateId.trim())
       if (filterResumeNotUpdated6) params.append("resumeNotUpdatedMonths", "6")
       if (appliedDateFrom.trim()) params.append("appliedDateFrom", appliedDateFrom.trim())
       if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
       if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
       if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
-      if (filterOutlet.trim()) {
-        // If filterOutlet is a location string (not numeric), find matching outlet IDs
-        const outletIdMatch = filterOutlet.trim().match(/^\d+$/)
-        if (outletIdMatch) {
-          // It's a numeric ID, use it directly
-          params.append("outletIds", filterOutlet.trim())
-        } else {
-          // It's a location string, find outlets matching this location
-          const matchingOutlets = outlets.filter((o) => 
-            (o.area && String(o.area).trim().toLowerCase() === filterOutlet.trim().toLowerCase()) ||
-            (o.address && String(o.address).trim().toLowerCase().includes(filterOutlet.trim().toLowerCase()))
-          )
-          if (matchingOutlets.length > 0) {
-            matchingOutlets.forEach((o) => params.append("outletIds", String(o.id)))
-          }
-        }
-      }
+      if (filterOutlet.trim()) params.append("outletIds", filterOutlet.trim())
       params.append("page", String(page))
       params.append("limit", String(limit))
 
@@ -577,29 +560,12 @@ export default function ViewApplicantsPage() {
       if (isActiveFilter !== "all") params.append("isActive", isActiveFilter)
       if (filterLocation.trim()) params.append("location", filterLocation.trim())
       if (filterPhone.trim()) params.append("phone", filterPhone.trim())
-      if (filterCandidateId.trim()) params.append("candidateId", filterCandidateId.trim())
       if (filterResumeNotUpdated6) params.append("resumeNotUpdatedMonths", "6")
       if (appliedDateFrom.trim()) params.append("appliedDateFrom", appliedDateFrom.trim())
       if (appliedDateTo.trim()) params.append("appliedDateTo", appliedDateTo.trim())
       if (updatedAtFrom.trim()) params.append("updatedAtFrom", updatedAtFrom.trim())
       if (updatedAtTo.trim()) params.append("updatedAtTo", updatedAtTo.trim())
-      if (filterOutlet.trim()) {
-        // If filterOutlet is a location string (not numeric), find matching outlet IDs
-        const outletIdMatch = filterOutlet.trim().match(/^\d+$/)
-        if (outletIdMatch) {
-          // It's a numeric ID, use it directly
-          params.append("outletIds", filterOutlet.trim())
-        } else {
-          // It's a location string, find outlets matching this location
-          const matchingOutlets = outlets.filter((o) => 
-            (o.area && String(o.area).trim().toLowerCase() === filterOutlet.trim().toLowerCase()) ||
-            (o.address && String(o.address).trim().toLowerCase().includes(filterOutlet.trim().toLowerCase()))
-          )
-          if (matchingOutlets.length > 0) {
-            matchingOutlets.forEach((o) => params.append("outletIds", String(o.id)))
-          }
-        }
-      }
+      if (filterOutlet.trim()) params.append("outletIds", filterOutlet.trim())
       params.set("page", "1")
       params.set("limit", "10000")
       const res = await fetch(`/api/candidates?${params.toString()}`)
@@ -642,7 +608,7 @@ export default function ViewApplicantsPage() {
   }
 
   const filteredCandidates = candidates
-  const moreFiltersCount = [filterLocation.trim(), filterOutlet.trim(), filterPhone.trim(), filterCandidateId.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
+  const moreFiltersCount = [filterLocation.trim(), filterOutlet.trim(), filterPhone.trim(), filterResumeNotUpdated6, appliedDateFrom.trim(), appliedDateTo.trim(), updatedAtFrom.trim(), updatedAtTo.trim()].filter(Boolean).length
 
   const handleSelectCandidate = (candidateId) => {
     setSelectedCandidates((prev) =>
@@ -1796,7 +1762,7 @@ export default function ViewApplicantsPage() {
                 </Select>
               </div>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterOutlet(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
+                <Button variant="outline" size="sm" onClick={() => { setPositionFilter([]); setLocationFilter([]); setIsActiveFilter("all"); setSearchQuery(""); setFilterLocation(""); setFilterOutlet(""); setFilterPhone(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>
                   Clear Filters
                 </Button>
                 <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
@@ -1824,12 +1790,12 @@ export default function ViewApplicantsPage() {
                         <Label>Outlet (scheduled at)</Label>
                         <Select value={filterOutlet || "all"} onValueChange={(value) => setFilterOutlet(value === "all" ? "" : value)}>
                           <SelectTrigger>
-                            <SelectValue placeholder="All locations" />
+                            <SelectValue placeholder="All outlets" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="all">All locations</SelectItem>
-                            {locationOptions.map((loc) => (
-                              <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                            <SelectItem value="all">All outlets</SelectItem>
+                            {outlets.map((o) => (
+                              <SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -1837,10 +1803,6 @@ export default function ViewApplicantsPage() {
                       <div className="space-y-2">
                         <Label htmlFor="filter-phone">Phone number</Label>
                         <Input id="filter-phone" placeholder="e.g. 98765..." value={filterPhone} onChange={(e) => setFilterPhone(e.target.value)} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="filter-candidate-id">Candidate ID</Label>
-                        <Input id="filter-candidate-id" type="text" placeholder="e.g. 1" value={filterCandidateId} onChange={(e) => setFilterCandidateId(e.target.value)} />
                       </div>
                       <div className="flex items-center space-x-2">
                         <Checkbox id="filter-resume-6" checked={filterResumeNotUpdated6} onCheckedChange={(c) => setFilterResumeNotUpdated6(!!c)} />
@@ -1861,7 +1823,7 @@ export default function ViewApplicantsPage() {
                         </div>
                       </div>
                       <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" size="sm" onClick={() => { setFilterLocation(""); setFilterOutlet(""); setFilterPhone(""); setFilterCandidateId(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setFilterLocation(""); setFilterOutlet(""); setFilterPhone(""); setFilterResumeNotUpdated6(false); setAppliedDateFrom(""); setAppliedDateTo(""); setUpdatedAtFrom(""); setUpdatedAtTo("") }}>Clear</Button>
                         <Button size="sm" onClick={() => setMoreFiltersOpen(false)}>Apply</Button>
                       </div>
                     </div>

@@ -18,8 +18,10 @@ export default function AddOutletClientPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [uploadingContract, setUploadingContract] = useState(false)
+  const [uploadingOutletImage, setUploadingOutletImage] = useState(false)
   const [addOutlet, setAddOutlet] = useState(false)
   const [areas, setAreas] = useState([])
+  const [locations, setLocations] = useState([])
   const [clients, setClients] = useState([])
   const [formData, setFormData] = useState({
     // Client fields
@@ -39,6 +41,9 @@ export default function AddOutletClientPage() {
     outletEmail: "",
     outletManager: "",
     outletStatus: "active",
+    outletImage: null,
+    outletImageName: "",
+    outletGoogleMapLocation: "",
     // Contract file
     contractFile: null,
     contractFileName: "",
@@ -49,6 +54,11 @@ export default function AddOutletClientPage() {
       .then((res) => (res.ok ? res.json() : []))
       .then(setAreas)
       .catch(() => setAreas([]))
+    
+    fetch("/api/outlets/locations")
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setLocations)
+      .catch(() => setLocations([]))
     
     fetch("/api/clients?limit=200")
       .then((res) => (res.ok ? res.json() : {}))
@@ -95,6 +105,47 @@ export default function AddOutletClientPage() {
       toast.error("Failed to upload contract file")
     } finally {
       setUploadingContract(false)
+    }
+  }
+
+  const handleOutletImageChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB")
+      return
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Please upload an image file (JPEG, PNG, GIF, or WebP)")
+      return
+    }
+
+    try {
+      setUploadingOutletImage(true)
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) throw new Error("Upload failed")
+      const json = await response.json()
+      setFormData((prev) => ({
+        ...prev,
+        outletImage: json.path,
+        outletImageName: file.name,
+      }))
+      toast.success("Outlet image uploaded successfully")
+    } catch (error) {
+      console.error("Error uploading image:", error)
+      toast.error("Failed to upload outlet image")
+    } finally {
+      setUploadingOutletImage(false)
     }
   }
 
@@ -153,12 +204,14 @@ export default function AddOutletClientPage() {
           type: formData.outletType,
           area: formData.outletArea,
           address: formData.outletAddress,
-          phone: formData.outletPhone,
-          email: formData.outletEmail,
-          manager: formData.outletManager,
+          phone: client.phone, // Always use client phone since outlet is associated with client
+          email: client.email, // Always use client email since outlet is associated with client
+          manager: "", // Manager field removed from form, set to empty string
           employees: 0,
           openPositions: 0,
           status: formData.outletStatus,
+          image: formData.outletImage,
+          googleMapLocation: formData.outletGoogleMapLocation,
           clientId: client.id,
         }
 
@@ -287,12 +340,16 @@ export default function AddOutletClientPage() {
                   </div>
                   <div>
                     <Label htmlFor="client-location">Client Location</Label>
-                    <Input
-                      id="client-location"
-                      placeholder="Location"
-                      value={formData.clientLocation}
-                      onChange={(e) => setFormData({ ...formData, clientLocation: e.target.value })}
-                    />
+                    <Select value={formData.clientLocation} onValueChange={(value) => setFormData({ ...formData, clientLocation: value })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map((loc) => (
+                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </CardContent>
               </Card>
@@ -422,35 +479,53 @@ export default function AddOutletClientPage() {
                         required={addOutlet}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="outlet-phone">Phone</Label>
-                        <Input
-                          id="outlet-phone"
-                          placeholder="Phone number"
-                          value={formData.outletPhone}
-                          onChange={(e) => setFormData({ ...formData, outletPhone: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="outlet-email">Email</Label>
-                        <Input
-                          id="outlet-email"
-                          type="email"
-                          placeholder="Email address"
-                          value={formData.outletEmail}
-                          onChange={(e) => setFormData({ ...formData, outletEmail: e.target.value })}
-                        />
-                      </div>
+                    <div>
+                      <Label htmlFor="outlet-google-map">Google Map Location</Label>
+                      <Input
+                        id="outlet-google-map"
+                        type="url"
+                        placeholder="Paste Google Maps URL or embed link"
+                        value={formData.outletGoogleMapLocation}
+                        onChange={(e) => setFormData({ ...formData, outletGoogleMapLocation: e.target.value })}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Optional: Add Google Maps link for this outlet location</p>
                     </div>
                     <div>
-                      <Label htmlFor="outlet-manager">Manager</Label>
-                      <Input
-                        id="outlet-manager"
-                        placeholder="Manager name"
-                        value={formData.outletManager}
-                        onChange={(e) => setFormData({ ...formData, outletManager: e.target.value })}
-                      />
+                      <Label htmlFor="outlet-image">Outlet Image</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="outlet-image-file" className="cursor-pointer">
+                          <div className="flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-gray-50 w-fit">
+                            {uploadingOutletImage ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span>Uploading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-4 h-4" />
+                                <span>Choose Image</span>
+                              </>
+                            )}
+                          </div>
+                          <Input
+                            id="outlet-image-file"
+                            type="file"
+                            accept="image/jpeg,image/png,image/gif,image/webp"
+                            onChange={handleOutletImageChange}
+                            className="hidden"
+                            disabled={uploadingOutletImage}
+                          />
+                        </Label>
+                        {formData.outletImageName && (
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <FileText className="w-4 h-4" />
+                            <span>{formData.outletImageName}</span>
+                          </div>
+                        )}
+                        {!formData.outletImageName && (
+                          <p className="text-sm text-gray-500">No image chosen (optional)</p>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 )}
