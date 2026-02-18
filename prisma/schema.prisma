@@ -66,36 +66,11 @@ model Outlet {
   schedules     InterviewSchedule[]
   jobPostings   JobPosting[]
   requirements  ClientRequirement[]
+  replacements  CandidateReplacement[]
 
   @@map("outlets")
 }
 
-// Designation model - represents job positions/roles
-model Designation {
-  id            Int       @id @default(autoincrement())
-  title         String
-  category      String    // hotel, restaurant, bar
-  department    String
-  level         String    // Entry, Mid, Senior
-  minSalary     Float
-  maxSalary     Float
-  openPositions Int       @default(0)
-  totalEmployees Int     @default(0)
-  description   String    @db.Text
-  requirements  String    @db.Text // JSON array stored as string
-  responsibilities String @db.Text // JSON array stored as string
-  skills        String    @db.Text // JSON array stored as string
-  status        String    // active, inactive
-  createdDate   DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  // Relations
-  candidates    Candidate[]
-  jobPostings   JobPosting[]
-
-  @@map("designations")
-}
 
 // Candidate/Applicant model
 model Candidate {
@@ -104,7 +79,6 @@ model Candidate {
   email         String?   @unique
   phone         String
   position      String
-  designationId Int?
   experience    String
   location      String    // single value or comma-separated for multiple
   availability  String?
@@ -135,12 +109,13 @@ model Candidate {
   updatedAt     DateTime  @updatedAt
 
   // Relations
-  designation   Designation? @relation(fields: [designationId], references: [id], onDelete: SetNull)
   addedByHr     Hr?       @relation(fields: [addedByHrId], references: [id], onDelete: SetNull)
   user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   cvLinks       CVLink[]
   schedules     InterviewSchedule[]
   tagHistory    CandidateTagHistory[]
+  replacedAs    CandidateReplacement[] @relation("ReplacedBy")
+  replacementAs CandidateReplacement[] @relation("ReplacementFor")
 
   @@map("candidates")
 }
@@ -154,6 +129,19 @@ model CustomLocation {
   adminUser           AdminUser @relation(fields: [createdByAdminUserId], references: [id], onDelete: Cascade)
 
   @@map("custom_locations")
+}
+
+// Candidate status (editable in Data Management; used in filters and badges)
+model CandidateStatus {
+  id        Int      @id @default(autoincrement())
+  value     String   @unique // slug stored in DB
+  label     String
+  color     String   // Tailwind badge classes, e.g. "bg-green-100 text-green-800 border-green-200"
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("candidate_statuses")
 }
 
 // Scheduled interview / meeting for a candidate at an outlet
@@ -173,6 +161,29 @@ model InterviewSchedule {
   @@map("interview_schedules")
 }
 
+// Replacement: one candidate (replaced) exits at an outlet, another (replacement) joins
+model CandidateReplacement {
+  id                    Int       @id @default(autoincrement())
+  replacedCandidateId   Int       // candidate who left
+  replacementCandidateId Int     // candidate who joined
+  outletId              Int
+  position              String    // role/position at outlet
+  replacedHrId          Int?      // HR who was handling the replaced candidate
+  replacementHrId      Int?      // HR for the replacement candidate
+  dateOfJoining         DateTime  // when replacement candidate joined
+  exitDate              DateTime  // when replaced candidate left
+  salary                String?   // salary for the replacement
+  createdAt             DateTime  @default(now())
+
+  replacedCandidate   Candidate @relation("ReplacedBy", fields: [replacedCandidateId], references: [id], onDelete: Cascade)
+  replacementCandidate Candidate @relation("ReplacementFor", fields: [replacementCandidateId], references: [id], onDelete: Cascade)
+  outlet              Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  replacedHr          Hr?       @relation("ReplacedHr", fields: [replacedHrId], references: [id], onDelete: SetNull)
+  replacementHr       Hr?       @relation("ReplacementHr", fields: [replacementHrId], references: [id], onDelete: SetNull)
+
+  @@map("candidate_replacements")
+}
+
 // Legacy: candidate tag history
 model CandidateTagHistory {
   id         Int      @id @default(autoincrement())
@@ -188,15 +199,14 @@ model CandidateTagHistory {
 // Job posting at outlet
 model JobPosting {
   id             Int         @id @default(autoincrement())
-  designationId  Int
+  position       String      // Job position/title
   outletId       Int
   status         String
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
-  designation    Designation @relation(fields: [designationId], references: [id], onDelete: Cascade)
   outlet         Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
 
-  @@unique([designationId, outletId])
+  @@unique([position, outletId])
   @@map("job_postings")
 }
 
@@ -231,7 +241,6 @@ model ClientRequirement {
   id            Int       @id @default(autoincrement())
   clientId      Int
   outletId      Int?      // Optional - requirement can be for specific outlet
-  designationId Int?       // From Designation or VendorPosition
   designation   String    // Job title/position name
   numberOfOpenings Int    // No. of requirement
   gender        String?   // "male", "female", "both"
@@ -322,6 +331,8 @@ model Hr {
   vendor        AdminUser @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   candidates    Candidate[]
   menuPermissions HrMenuPermission[]
+  replacedAsHr   CandidateReplacement[] @relation("ReplacedHr")
+  replacementAsHr CandidateReplacement[] @relation("ReplacementHr")
 
   @@map("hr")
 }

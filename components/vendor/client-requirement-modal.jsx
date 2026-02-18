@@ -37,9 +37,7 @@ const STATUS_OPTIONS = [
 export function ClientRequirementModal({ open, onOpenChange, clientId, outletId, requirement, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [uploadingJd, setUploadingJd] = useState(false)
-  const [designations, setDesignations] = useState([])
   const [formData, setFormData] = useState({
-    designationId: "",
     designation: "",
     numberOfOpenings: "",
     gender: "both", // "male", "female", "both"
@@ -55,16 +53,9 @@ export function ClientRequirementModal({ open, onOpenChange, clientId, outletId,
 
   useEffect(() => {
     if (open) {
-      // Fetch designations
-      fetch("/api/designations?limit=200")
-        .then((res) => (res.ok ? res.json() : {}))
-        .then((json) => setDesignations(json.data ?? []))
-        .catch(() => setDesignations([]))
-
       // If editing, load requirement data
       if (requirement) {
         setFormData({
-          designationId: requirement.designationId?.toString() || "",
           designation: requirement.designation || "",
           numberOfOpenings: requirement.numberOfOpenings?.toString() || "",
           gender: requirement.gender || "both",
@@ -80,7 +71,6 @@ export function ClientRequirementModal({ open, onOpenChange, clientId, outletId,
       } else {
         // Reset form
         setFormData({
-          designationId: "",
           designation: "",
           numberOfOpenings: "",
           gender: "both",
@@ -148,14 +138,6 @@ export function ClientRequirementModal({ open, onOpenChange, clientId, outletId,
     }))
   }
 
-  const handleDesignationSelect = (designationId) => {
-    const designation = designations.find((d) => d.id === parseInt(designationId, 10))
-    setFormData((prev) => ({
-      ...prev,
-      designationId: designationId,
-      designation: designation ? designation.title : prev.designation,
-    }))
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -176,7 +158,6 @@ export function ClientRequirementModal({ open, onOpenChange, clientId, outletId,
       const requirementData = {
         clientId: parseInt(clientId, 10),
         outletId: outletId ? parseInt(outletId, 10) : null,
-        designationId: formData.designationId ? parseInt(formData.designationId, 10) : null,
         designation: formData.designation,
         numberOfOpenings: parseInt(formData.numberOfOpenings, 10),
         gender: formData.gender,
@@ -226,32 +207,15 @@ export function ClientRequirementModal({ open, onOpenChange, clientId, outletId,
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             {/* Designation */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="designation-select">Choose Designation *</Label>
-                <Select value={formData.designationId} onValueChange={handleDesignationSelect}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select designation" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {designations.map((d) => (
-                      <SelectItem key={d.id} value={String(d.id)}>
-                        {d.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="designation-manual">Or Enter Designation *</Label>
-                <Input
-                  id="designation-manual"
-                  placeholder="Enter designation name"
-                  value={formData.designation}
-                  onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                  required
-                />
-              </div>
+            <div>
+              <Label htmlFor="designation">Designation / Position *</Label>
+              <Input
+                id="designation"
+                placeholder="Enter designation/position name"
+                value={formData.designation}
+                onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                required
+              />
             </div>
 
             {/* Number of Openings & Status */}

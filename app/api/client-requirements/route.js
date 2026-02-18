@@ -50,7 +50,6 @@ export async function POST(request) {
     const {
       clientId,
       outletId,
-      designationId,
       designation,
       numberOfOpenings,
       gender,
@@ -71,7 +70,6 @@ export async function POST(request) {
       data: {
         clientId: parseInt(clientId, 10),
         outletId: outletId ? parseInt(outletId, 10) : null,
-        designationId: designationId ? parseInt(designationId, 10) : null,
         designation,
         numberOfOpenings: parseInt(numberOfOpenings, 10),
         gender: gender || null,

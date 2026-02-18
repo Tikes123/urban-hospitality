@@ -27,7 +27,6 @@ export default function AddOutletClientPage() {
     // Client fields
     clientName: "",
     companyName: "",
-    designation: "",
     clientPhone: "",
     clientEmail: "",
     clientLocation: "",

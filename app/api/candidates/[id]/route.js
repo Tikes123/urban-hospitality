@@ -7,7 +7,7 @@ export async function GET(request, { params }) {
     const id = parseInt(rawId)
     const candidate = await prisma.candidate.findUnique({
       where: { id },
-      include: { designation: true, cvLinks: true },
+      include: { cvLinks: true },
     })
     if (!candidate) {
       return NextResponse.json({ error: "Candidate not found" }, { status: 404 })
@@ -44,7 +44,6 @@ export async function PUT(request, { params }) {
     if (body.email !== undefined) updateData.email = body.email || null
     if (body.phone !== undefined) updateData.phone = body.phone
     if (body.position !== undefined) updateData.position = body.position
-    if (body.designationId !== undefined) updateData.designationId = body.designationId ? parseInt(body.designationId) : null
     if (body.experience !== undefined) updateData.experience = body.experience
     if (body.location !== undefined) {
       updateData.location = Array.isArray(body.location) ? body.location.filter(Boolean).join(", ") : String(body.location ?? "")
@@ -113,7 +112,6 @@ export async function PUT(request, { params }) {
     const candidate = await prisma.candidate.update({
       where: { id },
       data: updateData,
-      include: { designation: true },
     })
     return NextResponse.json({
       ...candidate,

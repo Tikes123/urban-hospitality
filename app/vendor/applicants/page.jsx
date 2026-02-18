@@ -52,6 +52,12 @@ import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
 import { CANDIDATE_STATUSES, getStatusInfo, getStatusBadgeClass } from "@/lib/statusConfig"
 import { getCvLinkUrl } from "@/lib/baseUrl"
+import { CandidateActionMenu } from "@/components/modals/candidate-action-menu"
+import { CandidateViewDetailsModal } from "@/components/modals/candidate-view-details-modal"
+import { CandidateHistoryModal } from "@/components/modals/candidate-history-modal"
+import { CandidateShareInfoModal } from "@/components/modals/candidate-share-info-modal"
+import { CandidateMarkInactiveModal } from "@/components/modals/candidate-mark-inactive-modal"
+import { CandidateDeleteConfirmModal } from "@/components/modals/candidate-delete-confirm-modal"
 
 const INACTIVE_REASON_CATEGORIES = [
   { value: "behaviour", label: "Behaviour or discipline issues (misconduct, attitude, substance use)" },
@@ -105,14 +111,25 @@ export default function ViewApplicantsPage() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyCandidate, setHistoryCandidate] = useState(null)
   const [historySchedules, setHistorySchedules] = useState([])
+  const [historyReplacements, setHistoryReplacements] = useState([])
   const [historyPage, setHistoryPage] = useState(1)
   const HISTORY_PAGE_SIZE = 10
   const [viewDetailsOpen, setViewDetailsOpen] = useState(false)
   const [viewDetailsCandidate, setViewDetailsCandidate] = useState(null)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteCandidate, setDeleteCandidate] = useState(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editCandidate, setEditCandidate] = useState(null)
   const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: [], salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const [replaceWithChecked, setReplaceWithChecked] = useState(false)
+  const [replacementForm, setReplacementForm] = useState({
+    replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "",
+  })
+  const [replacementCandidateSearch, setReplacementCandidateSearch] = useState("")
+  const [replacementCandidateOptions, setReplacementCandidateOptions] = useState([])
+  const [replacementCandidateDropdownOpen, setReplacementCandidateDropdownOpen] = useState(false)
+  const [hrList, setHrList] = useState([])
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
   const [filterLocation, setFilterLocation] = useState("") // single select: empty string = all
   const [locationFilter, setLocationFilter] = useState([]) // keep for backward compatibility but not used
@@ -134,7 +151,6 @@ export default function ViewApplicantsPage() {
   const [inactiveCandidate, setInactiveCandidate] = useState(null)
   const [inactiveReasonCategory, setInactiveReasonCategory] = useState("")
   const [inactiveReason, setInactiveReason] = useState("")
-  const [inactiveSubmitting, setInactiveSubmitting] = useState(false)
   const [cvLinks, setCvLinks] = useState([])
   const [locationOptions, setLocationOptions] = useState([]) // from outlets + custom
   const [uploadProgress, setUploadProgress] = useState(null) // { current, total, percent }
@@ -203,7 +219,12 @@ export default function ViewApplicantsPage() {
     if (t) {
       fetch("/api/auth/session", { headers: { Authorization: `Bearer ${t}` } })
         .then((res) => res.json())
-        .then((data) => { if (data.valid && data.user) setSessionUser({ id: data.user.id, role: data.role }) })
+        .then((data) => {
+          if (data.valid && data.user) {
+            setSessionUser({ id: data.user.id, role: data.role })
+            if (data.user.id) fetch(`/api/hr?vendorId=${data.user.id}&limit=200`).then((r) => r.ok ? r.json() : {}).then((d) => setHrList(d.data ?? [])).catch(() => setHrList([]))
+          }
+        })
         .catch(() => {})
       const hrId = typeof window !== "undefined" ? localStorage.getItem("vendor_view_as_hr_id") : null
       const permUrl = hrId ? `/api/vendor/menu-permissions?hrId=${hrId}` : "/api/vendor/menu-permissions"
@@ -520,21 +541,19 @@ export default function ViewApplicantsPage() {
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this candidate?")) return
+  const handleDelete = (candidate) => {
+    setDeleteCandidate(candidate)
+    setDeleteModalOpen(true)
+  }
 
+  const handleDeleteConfirm = async (candidate) => {
     try {
-      const response = await fetch(`/api/candidates/${id}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) throw new Error("Failed to delete candidate")
-
+      const res = await fetch(`/api/candidates/${candidate.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to delete")
       toast.success("Candidate deleted successfully")
       fetchCandidates()
     } catch (error) {
-      console.error("Error deleting candidate:", error)
-      toast.error("Failed to delete candidate")
+      toast.error(error.message || "Failed to delete candidate")
     }
   }
 
@@ -723,34 +742,46 @@ export default function ViewApplicantsPage() {
     setInactiveModalOpen(true)
   }
 
-  const handleInactiveModalSubmit = async () => {
-    if (!inactiveCandidate) return
-    setInactiveSubmitting(true)
-    try {
-      await handleSetActiveStatus(inactiveCandidate.id, false, inactiveReason, inactiveReasonCategory || null)
-    } catch (err) {
-      toast.error(err.message || "Failed to update")
-    } finally {
-      setInactiveSubmitting(false)
-    }
-  }
 
   const handleEditSubmit = async (e) => {
     e.preventDefault()
     if (!editCandidate) return
     setEditSubmitting(true)
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
     try {
       const payload = { ...editForm }
       if (Array.isArray(payload.location)) payload.location = payload.location.filter(Boolean).join(", ")
       const res = await fetch(`/api/candidates/${editCandidate.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(payload),
       })
       if (!res.ok) throw new Error((await res.json()).error || "Failed to update")
-      toast.success("Candidate updated")
+      if (replaceWithChecked && replacementForm.replacementCandidateId && replacementForm.outletId && replacementForm.position && replacementForm.dateOfJoining && replacementForm.exitDate) {
+        const replRes = await fetch("/api/replacements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({
+            replacedCandidateId: editCandidate.id,
+            replacementCandidateId: parseInt(replacementForm.replacementCandidateId, 10),
+            outletId: parseInt(replacementForm.outletId, 10),
+            position: replacementForm.position.trim(),
+            replacedHrId: replacementForm.replacedHrId || null,
+            replacementHrId: replacementForm.replacementHrId || null,
+            dateOfJoining: replacementForm.dateOfJoining,
+            exitDate: replacementForm.exitDate,
+            salary: replacementForm.salary?.trim() || null,
+          }),
+        })
+        if (!replRes.ok) throw new Error((await replRes.json()).error || "Failed to create replacement")
+        toast.success("Candidate updated and replacement recorded")
+      } else {
+        toast.success("Candidate updated")
+      }
       setEditModalOpen(false)
       setEditCandidate(null)
+      setReplaceWithChecked(false)
+      setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
       fetchCandidates()
     } catch (err) {
       toast.error(err.message || "Failed to update")
@@ -759,15 +790,33 @@ export default function ViewApplicantsPage() {
     }
   }
 
+  const searchReplacementCandidates = (q) => {
+    if (!q || !q.trim()) { setReplacementCandidateOptions([]); return }
+    const params = new URLSearchParams({ search: q.trim(), limit: "20" })
+    fetch(`/api/candidates?${params}`)
+      .then((res) => res.ok ? res.json() : { data: [] })
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data.data ?? [])
+        const exclude = editCandidate?.id ? list.filter((c) => c.id !== editCandidate.id) : list
+        setReplacementCandidateOptions(exclude)
+      })
+      .catch(() => setReplacementCandidateOptions([]))
+  }
+
   const openHistoryModal = async (candidate) => {
     setHistoryCandidate(candidate)
     setHistoryPage(1)
     setHistoryModalOpen(true)
     try {
-      const res = await fetch(`/api/candidates/${candidate.id}/schedules`)
-      setHistorySchedules(res.ok ? await res.json() : [])
+      const [schedRes, replRes] = await Promise.all([
+        fetch(`/api/candidates/${candidate.id}/schedules`),
+        fetch(`/api/candidates/${candidate.id}/replacements`),
+      ])
+      setHistorySchedules(schedRes.ok ? await schedRes.json() : [])
+      setHistoryReplacements(replRes.ok ? await replRes.json() : [])
     } catch {
       setHistorySchedules([])
+      setHistoryReplacements([])
     }
   }
 
@@ -1225,268 +1274,41 @@ export default function ViewApplicantsPage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
-          <DialogContent className="max-h-[90vh] flex flex-col sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Interview History</DialogTitle>
-              <DialogDescription>
-                {historyCandidate ? `Previously scheduled / tagged for ${historyCandidate.name}` : ""}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 flex flex-col flex-1 min-h-0">
-              {historySchedules.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No scheduled interviews yet.</p>
-              ) : (
-                <>
-                  <div className="overflow-x-auto overflow-y-auto flex-1 rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-12">S.No</TableHead>
-                          <TableHead>Outlets</TableHead>
-                          <TableHead>Interview date</TableHead>
-                          <TableHead>Tag date & time</TableHead>
-                          <TableHead>Remark</TableHead>
-                          <TableHead>Tagged by</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {historySchedules
-                          .slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
-                          .map((s, idx) => (
-                          <TableRow key={s.id}>
-                            <TableCell className="font-mono">{(historyPage - 1) * HISTORY_PAGE_SIZE + idx + 1}</TableCell>
-                            <TableCell>{s.outlet?.name ?? "—"}</TableCell>
-                            <TableCell>{s.scheduledAt ? new Date(s.scheduledAt).toLocaleString("en-IN") : "—"}</TableCell>
-                            <TableCell>{s.createdAt ? new Date(s.createdAt).toLocaleString("en-IN") : "—"}</TableCell>
-                            <TableCell>{s.remarks ?? "—"}</TableCell>
-                            <TableCell>{s.taggedBy?.name || s.taggedBy?.email || "—"}</TableCell>
-                            <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {historySchedules.length > HISTORY_PAGE_SIZE && (
-                    <div className="flex items-center justify-between pt-3 border-t mt-3">
-                      <span className="text-sm text-muted-foreground">
-                        Showing {(historyPage - 1) * HISTORY_PAGE_SIZE + 1}-{Math.min(historyPage * HISTORY_PAGE_SIZE, historySchedules.length)} of {historySchedules.length}
-                      </span>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={historyPage <= 1}>
-                          Previous
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => setHistoryPage((p) => p + 1)} disabled={historyPage >= Math.ceil(historySchedules.length / HISTORY_PAGE_SIZE)}>
-                          Next
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CandidateHistoryModal
+          open={historyModalOpen}
+          onOpenChange={setHistoryModalOpen}
+          candidate={historyCandidate}
+          schedules={historySchedules}
+          replacements={historyReplacements}
+          page={historyPage}
+          onPageChange={setHistoryPage}
+        />
 
-        <Dialog open={shareInfoOpen} onOpenChange={(open) => { setShareInfoOpen(open); if (!open) setShareInfoCopied(false) }}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Share info</DialogTitle>
-              <DialogDescription>
-                Select fields to include, then copy. Paste in WhatsApp to share with client.
-              </DialogDescription>
-            </DialogHeader>
-            {shareInfoCandidate && (
-              <div className="mt-4 space-y-4">
-                <div>
-                  <Label htmlFor="share-intro">Highlight / Intro</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Editable text – included at the bottom when you Copy all. Use {"{{interviewDate}}"} and {"{{interviewTime}}"} for auto date/time from next interview. Save to keep for this candidate.</p>
-                  <Textarea
-                    id="share-intro"
-                    placeholder="e.g. Above candidate will be coming for Interview on {{interviewDate}} at {{interviewTime}}, Please share the feedback once the interview is done."
-                    value={shareInfoIntro}
-                    onChange={(e) => setShareInfoIntro(e.target.value)}
-                    className="mt-2 min-h-[80px] resize-y"
-                    rows={3}
-                  />
-                  <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={saveShareIntro} disabled={shareInfoIntroSaving}>
-                    {shareInfoIntroSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                    Save intro
-                  </Button>
-                </div>
-                <p className="text-sm font-medium">Include in copy:</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { key: "name", label: "Name" },
-                    { key: "phone", label: "Phone" },
-                    { key: "email", label: "Email" },
-                    { key: "position", label: "Position" },
-                    { key: "experience", label: "Experience" },
-                    { key: "location", label: "Location" },
-                    { key: "appliedDate", label: "Applied Date" },
-                    { key: "salary", label: "Expected Salary" },
-                    { key: "status", label: "Status" },
-                    { key: "cvLink", label: "CV Link" },
-                    { key: "interview", label: "Interview (next schedule)" },
-                  ].map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox
-                        checked={shareInfoFields[key] !== false}
-                        onCheckedChange={(checked) => setShareInfoFields((prev) => ({ ...prev, [key]: !!checked }))}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <div className="flex flex-col gap-3 pt-2 border-t">
-                <div className="flex flex-wrap gap-2 items-center">
-                  <Button className="bg-green-600 hover:bg-green-700" onClick={copyShareInfo} disabled={shareInfoCopied}>
-                    {shareInfoCopied ? (
-                      <><Check className="w-4 h-4 mr-2" /> Copied</>
-                    ) : (
-                      <><Copy className="w-4 h-4 mr-2" /> Copy all</>
-                    )}
-                  </Button>
-                  {shareInfoCandidate && cvLinkByCandidateId(shareInfoCandidate.id) && (
-                    <Button variant="outline" size="sm" onClick={copyCvLinkInShareModal} className="gap-1.5">
-                      <Link2 className="w-4 h-4" /> Copy link
-                    </Button>
-                  )}
-                  <Button variant="outline" onClick={() => setShareInfoOpen(false)}>Close</Button>
-                </div>
-                <p className="text-xs text-muted-foreground">Click &quot;Copy link&quot; to copy the CV link and auto-include it in &quot;Copy all&quot;.</p>
-                <p className="text-xs text-muted-foreground">Share via</p>
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={shareViaWhatsApp}>
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    WhatsApp
-                  </Button>
-                  {typeof navigator !== "undefined" && navigator.share && (
-                    <Button variant="outline" size="sm" className="gap-1.5" onClick={shareNative}>
-                      <Share2 className="w-4 h-4" /> Share
-                    </Button>
-                  )}
-                </div>
-              </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        <CandidateShareInfoModal
+          open={shareInfoOpen}
+          onOpenChange={(open) => { setShareInfoOpen(open); if (!open) setShareInfoCopied(false) }}
+          candidate={shareInfoCandidate}
+          cvLinks={cvLinks}
+          onSaveIntro={() => {
+            setCandidates((prev) => prev.map((c) => (c.id === shareInfoCandidate?.id ? { ...c, shareIntro: shareInfoIntro } : c)))
+            fetchCandidates()
+          }}
+          onRefresh={fetchCvLinks}
+        />
 
-        <Dialog open={inactiveModalOpen} onOpenChange={(open) => { if (!open) { setInactiveModalOpen(false); setInactiveCandidate(null); setInactiveReasonCategory(""); setInactiveReason("") } else setInactiveModalOpen(open) }}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Mark candidate inactive</DialogTitle>
-              <DialogDescription>
-                {inactiveCandidate ? `Select a category and optionally add a remark for why ${inactiveCandidate.name} is being marked inactive. This will be visible to other vendors and HR.` : "Select a category (optional) and add a remark (optional)."}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 space-y-4">
-              <div>
-                <Label>Reason category (optional)</Label>
-                <Select value={inactiveReasonCategory || "none"} onValueChange={(v) => setInactiveReasonCategory(v === "none" ? "" : v)}>
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {INACTIVE_REASON_CATEGORIES.map((c) => (
-                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="inactive-reason">Remark / additional reason (optional)</Label>
-                <Textarea
-                  id="inactive-reason"
-                  placeholder="e.g. Additional details..."
-                  value={inactiveReason}
-                  onChange={(e) => setInactiveReason(e.target.value)}
-                  className="mt-2 min-h-[80px]"
-                  rows={3}
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { setInactiveModalOpen(false); setInactiveCandidate(null); setInactiveReasonCategory(""); setInactiveReason("") }}>Cancel</Button>
-                <Button disabled={inactiveSubmitting} onClick={handleInactiveModalSubmit}>
-                  {inactiveSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserX className="w-4 h-4 mr-2" />}
-                  Mark inactive
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CandidateMarkInactiveModal
+          open={inactiveModalOpen}
+          onOpenChange={(open) => { if (!open) { setInactiveModalOpen(false); setInactiveCandidate(null); setInactiveReasonCategory(""); setInactiveReason("") } else setInactiveModalOpen(open) }}
+          candidate={inactiveCandidate}
+          onSubmit={async (candidateId, reason, category) => {
+            await handleSetActiveStatus(candidateId, false, reason, category || null)
+            setInactiveModalOpen(false)
+            setInactiveCandidate(null)
+            setInactiveReasonCategory("")
+            setInactiveReason("")
+          }}
+        />
 
-        <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Candidate Details</DialogTitle>
-              <DialogDescription>{viewDetailsCandidate?.name}</DialogDescription>
-            </DialogHeader>
-            {viewDetailsCandidate && (
-              <div className="mt-4 space-y-3 text-sm">
-                <p><span className="font-medium">Phone:</span> {viewDetailsCandidate.phone}</p>
-                <p><span className="font-medium">Email:</span> {viewDetailsCandidate.email || "—"}</p>
-                <p><span className="font-medium">Position:</span> {viewDetailsCandidate.position}</p>
-                <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience}</p>
-                <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
-                <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
-                <p><span className="font-medium">Expected Salary:</span> {viewDetailsCandidate.salary || "—"}</p>
-                <p><span className="font-medium">Source:</span> {viewDetailsCandidate.source || "—"}</p>
-                {viewDetailsCandidate.skills && <p><span className="font-medium">Skills & Qualifications:</span> {viewDetailsCandidate.skills}</p>}
-                {viewDetailsCandidate.education && <p><span className="font-medium">Education:</span> {viewDetailsCandidate.education}</p>}
-                {viewDetailsCandidate.previousEmployer && <p><span className="font-medium">Previous Employer:</span> {viewDetailsCandidate.previousEmployer}</p>}
-                {viewDetailsCandidate.notes && <p><span className="font-medium">Internal Notes:</span> {viewDetailsCandidate.notes}</p>}
-                {viewDetailsCandidate.isActive === false && (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3">
-                    <p className="font-medium text-amber-800 dark:text-amber-200">Inactive</p>
-                    {viewDetailsCandidate.inactiveReasonCategory && (
-                      <p className="mt-1 text-muted-foreground">
-                        <span className="font-medium">Category:</span> {INACTIVE_REASON_CATEGORIES.find((c) => c.value === viewDetailsCandidate.inactiveReasonCategory)?.label ?? viewDetailsCandidate.inactiveReasonCategory}
-                      </p>
-                    )}
-                    {viewDetailsCandidate.inactiveReason ? (
-                      <p className="mt-1 text-muted-foreground"><span className="font-medium">Remark:</span> {viewDetailsCandidate.inactiveReason}</p>
-                    ) : viewDetailsCandidate.inactiveReasonCategory ? null : (
-                      <p className="mt-1 text-muted-foreground">No reason provided.</p>
-                    )}
-                  </div>
-                )}
-                {(() => {
-                  const att = viewDetailsCandidate.attachments || []
-                  const firstPath = viewDetailsCandidate.resume || (att[0] && att[0].path)
-                  const allFiles = att.length > 0 ? att : (viewDetailsCandidate.resume ? [{ path: viewDetailsCandidate.resume, name: "Resume" }] : [])
-                  return (
-                    <>
-                      <p><span className="font-medium">Resume:</span> {firstPath ? (
-                        <a href={firstPath.startsWith("http") ? firstPath : firstPath} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a>
-                      ) : (
-                        <span className="text-muted-foreground">Unavailable</span>
-                      )}</p>
-                      {allFiles.length > 1 && (
-                        <p><span className="font-medium">Attached files:</span>
-                          <span className="ml-2">
-                            {allFiles.map((f, i) => (
-                              <span key={i}>
-                                <a href={(f.path || "").startsWith("http") ? f.path : f.path} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">{f.name || `File ${i + 1}`}</a>
-                                {i < allFiles.length - 1 ? ", " : ""}
-                              </span>
-                            ))}
-                          </span>
-                        </p>
-                      )}
-                      <p><span className="font-medium">Resume last updated:</span> {viewDetailsCandidate.resumeUpdatedAt ? new Date(viewDetailsCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}</p>
-                      <p><span className="font-medium">Applied:</span> {viewDetailsCandidate.appliedDate}</p>
-                      <p><span className="font-medium">Last updated:</span> {viewDetailsCandidate.updatedAt ? new Date(viewDetailsCandidate.updatedAt).toLocaleString("en-IN") : "—"}</p>
-                    </>
-                  )
-                })()}
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
 
         <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -1579,8 +1401,108 @@ export default function ViewApplicantsPage() {
                 </div>
                 <div>
                   <Label htmlFor="edit-salary">Expected Salary</Label>
-                  <Input id="edit-salary" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} />
+                  <Input id="edit-salary" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} placeholder="Add or edit salary" />
                 </div>
+              </div>
+              <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={replaceWithChecked} onCheckedChange={(c) => setReplaceWithChecked(!!c)} />
+                  <span className="font-medium">Replace this candidate with</span>
+                </label>
+                {replaceWithChecked && (
+                  <>
+                    <div>
+                      <Label>Replacement candidate (who is joining)</Label>
+                      <Popover open={replacementCandidateDropdownOpen} onOpenChange={setReplacementCandidateDropdownOpen}>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-between font-normal mt-1">
+                            <span className="truncate">{replacementForm.replacementCandidateName || "Search by name or phone..."}</span>
+                            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+                          <Input
+                            placeholder="Type to search..."
+                            value={replacementCandidateSearch}
+                            onChange={(e) => { setReplacementCandidateSearch(e.target.value); searchReplacementCandidates(e.target.value) }}
+                            onFocus={() => setReplacementCandidateDropdownOpen(true)}
+                            className="mb-2 h-9"
+                          />
+                          <div className="max-h-48 overflow-y-auto space-y-1">
+                            {replacementCandidateOptions.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="w-full flex flex-col items-start rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent"
+                                onClick={() => {
+                                  setReplacementForm((prev) => ({ ...prev, replacementCandidateId: String(c.id), replacementCandidateName: `${c.name} (${c.phone})` }))
+                                  setReplacementCandidateDropdownOpen(false)
+                                  setReplacementCandidateSearch("")
+                                  setReplacementCandidateOptions([])
+                                }}
+                              >
+                                <span className="font-medium">{c.name}</span>
+                                <span className="text-xs text-muted-foreground">{c.phone} · {c.position}</span>
+                              </button>
+                            ))}
+                            {replacementCandidateSearch.trim() && replacementCandidateOptions.length === 0 && <p className="text-sm text-muted-foreground py-2">No candidates found</p>}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Outlet</Label>
+                        <Select value={replacementForm.outletId ? String(replacementForm.outletId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, outletId: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Select outlet" /></SelectTrigger>
+                          <SelectContent>
+                            {outlets.map((o) => (<SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Position (at outlet)</Label>
+                        <Input value={replacementForm.position} onChange={(e) => setReplacementForm((prev) => ({ ...prev, position: e.target.value }))} placeholder="e.g. sous-chef" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Replaced candidate HR (who was handling this candidate)</Label>
+                        <Select value={replacementForm.replacedHrId ? String(replacementForm.replacedHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacedHrId: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">— None —</SelectItem>
+                            {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Replacement candidate HR</Label>
+                        <Select value={replacementForm.replacementHrId ? String(replacementForm.replacementHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacementHrId: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">— None —</SelectItem>
+                            {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Date of joining (replacement candidate)</Label>
+                        <Input type="date" value={replacementForm.dateOfJoining} onChange={(e) => setReplacementForm((prev) => ({ ...prev, dateOfJoining: e.target.value }))} />
+                      </div>
+                      <div>
+                        <Label>Exit date (this candidate)</Label>
+                        <Input type="date" value={replacementForm.exitDate} onChange={(e) => setReplacementForm((prev) => ({ ...prev, exitDate: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Salary (for replacement)</Label>
+                      <Input value={replacementForm.salary} onChange={(e) => setReplacementForm((prev) => ({ ...prev, salary: e.target.value }))} placeholder="Optional" />
+                    </div>
+                  </>
+                )}
               </div>
               <div>
                 <Label>Attached files</Label>
@@ -1902,26 +1824,22 @@ export default function ViewApplicantsPage() {
                             <div className="text-xs text-gray-400 flex items-center"><Phone className="w-3 h-3 mr-1" />{candidate.phone}</div>
                           </div>
                         </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {allowedMap.action_view_details !== false && <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>}
-                            {allowedMap.action_share_info !== false && <DropdownMenuItem onClick={() => openShareInfo(candidate)}><Share2 className="w-4 h-4 mr-2" /> Share info</DropdownMenuItem>}
-                            {allowedMap.action_edit !== false && <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>}
-                            {allowedMap.action_call !== false && <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>}
-                            {allowedMap.action_email !== false && <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>}
-                            {allowedMap.action_schedule_interview !== false && <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>}
-                            {allowedMap.action_download_resume !== false && <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>}
-                            {allowedMap.action_history !== false && <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>}
-                            {allowedMap.action_activate_cv_link !== false && <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>}
-                            {allowedMap.action_deactivate_cv_link !== false && <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>}
-                            {allowedMap.action_mark_inactive !== false && candidate.isActive !== false && <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}><UserX className="w-4 h-4 mr-2" /> Mark inactive</DropdownMenuItem>}
-                            {allowedMap.action_activate !== false && candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}><UserCheck className="w-4 h-4 mr-2" /> Activate</DropdownMenuItem>}
-                            {allowedMap.action_delete !== false && <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <CandidateActionMenu
+                          candidate={candidate}
+                          allowedMap={allowedMap}
+                          sessionUser={sessionUser}
+                          onViewDetails={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}
+                          onShareInfo={() => openShareInfo(candidate)}
+                          onEdit={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] }); setReplaceWithChecked(false); setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" }); setEditModalOpen(true) }}
+                          onScheduleInterview={() => openScheduleModal(candidate)}
+                          onHistory={() => openHistoryModal(candidate)}
+                          onActivateCvLink={() => handleActivateCvLink(candidate)}
+                          onDeactivateCvLink={() => handleDeactivateCvLink(candidate)}
+                          onMarkInactive={() => handleMarkInactiveClick(candidate)}
+                          onActivate={() => handleSetActiveStatus(candidate.id, true)}
+                          onDelete={() => handleDelete(candidate)}
+                          onDownloadResume={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")}
+                        />
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 items-center">
                         {getStatusBadge(candidate.status)}
@@ -2060,82 +1978,28 @@ export default function ViewApplicantsPage() {
                         </TableCell>
                       )}
                       <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {allowedMap.action_view_details !== false && (
-                              <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}>
-                                <Eye className="w-4 h-4 mr-2" /> View Details
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_share_info !== false && (
-                              <DropdownMenuItem onClick={() => openShareInfo(candidate)}>
-                                <Share2 className="w-4 h-4 mr-2" /> Share info
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_edit !== false && (
-                              <DropdownMenuItem onClick={() => {
-                                setEditCandidate(candidate)
-                                setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] })
-                                setEditModalOpen(true)
-                              }}>
-                                <Edit className="w-4 h-4 mr-2" /> Edit
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_call !== false && (
-                              <DropdownMenuItem asChild>
-                                <a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a>
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_email !== false && (
-                              <DropdownMenuItem asChild>
-                                <a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a>
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_schedule_interview !== false && (
-                              <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}>
-                                <Calendar className="w-4 h-4 mr-2" /> Schedule Interview
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_download_resume !== false && (
-                              <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}>
-                                <Download className="w-4 h-4 mr-2" /> Download Resume
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_history !== false && (
-                              <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
-                                <History className="w-4 h-4 mr-2" /> History
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_activate_cv_link !== false && (
-                              <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
-                                <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_deactivate_cv_link !== false && (
-                              <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
-                                <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_mark_inactive !== false && candidate.isActive !== false && (
-                              <DropdownMenuItem onClick={() => handleMarkInactiveClick(candidate)}>
-                                <UserX className="w-4 h-4 mr-2" /> Mark inactive
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_activate !== false && candidate.isActive === false && (sessionUser?.id === candidate.inactivatedByAdminUserId || sessionUser?.role === "super_admin") && (
-                              <DropdownMenuItem onClick={() => handleSetActiveStatus(candidate.id, true)}>
-                                <UserCheck className="w-4 h-4 mr-2" /> Activate
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_delete !== false && (
-                              <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
-                                <Trash2 className="w-4 h-4 mr-2" /> Delete
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <CandidateActionMenu
+                          candidate={candidate}
+                          allowedMap={allowedMap}
+                          sessionUser={sessionUser}
+                          onViewDetails={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}
+                          onShareInfo={() => openShareInfo(candidate)}
+                          onEdit={() => {
+                            setEditCandidate(candidate)
+                            setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] })
+                            setReplaceWithChecked(false)
+                            setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
+                            setEditModalOpen(true)
+                          }}
+                          onScheduleInterview={() => openScheduleModal(candidate)}
+                          onHistory={() => openHistoryModal(candidate)}
+                          onActivateCvLink={() => handleActivateCvLink(candidate)}
+                          onDeactivateCvLink={() => handleDeactivateCvLink(candidate)}
+                          onMarkInactive={() => handleMarkInactiveClick(candidate)}
+                          onActivate={() => handleSetActiveStatus(candidate.id, true)}
+                          onDelete={() => handleDelete(candidate)}
+                          onDownloadResume={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")}
+                        />
                       </TableCell>
                     </TableRow>
                   ))

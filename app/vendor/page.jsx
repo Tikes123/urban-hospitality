@@ -46,6 +46,12 @@ import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
 import { CANDIDATE_STATUSES, getStatusInfo, getStatusBadgeClass } from "@/lib/statusConfig"
 import { getCvLinkUrl } from "@/lib/baseUrl"
+import { CandidateActionMenu } from "@/components/modals/candidate-action-menu"
+import { CandidateViewDetailsModal } from "@/components/modals/candidate-view-details-modal"
+import { CandidateHistoryModal } from "@/components/modals/candidate-history-modal"
+import { CandidateShareInfoModal } from "@/components/modals/candidate-share-info-modal"
+import { CandidateMarkInactiveModal } from "@/components/modals/candidate-mark-inactive-modal"
+import { CandidateDeleteConfirmModal } from "@/components/modals/candidate-delete-confirm-modal"
 
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
@@ -68,15 +74,26 @@ export default function AdminDashboard() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyCandidate, setHistoryCandidate] = useState(null)
   const [historySchedules, setHistorySchedules] = useState([])
+  const [historyReplacements, setHistoryReplacements] = useState([])
   const [historyPage, setHistoryPage] = useState(1)
   const HISTORY_PAGE_SIZE = 10
   const [exportingCsv, setExportingCsv] = useState(false)
   const [viewDetailsOpen, setViewDetailsOpen] = useState(false)
   const [viewDetailsCandidate, setViewDetailsCandidate] = useState(null)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteCandidate, setDeleteCandidate] = useState(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editCandidate, setEditCandidate] = useState(null)
   const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const [replaceWithChecked, setReplaceWithChecked] = useState(false)
+  const [replacementForm, setReplacementForm] = useState({
+    replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "",
+  })
+  const [replacementCandidateSearch, setReplacementCandidateSearch] = useState("")
+  const [replacementCandidateOptions, setReplacementCandidateOptions] = useState([])
+  const [replacementCandidateDropdownOpen, setReplacementCandidateDropdownOpen] = useState(false)
+  const [hrList, setHrList] = useState([])
   const MAX_UPLOAD_MB = 50
   const [todayStats, setTodayStats] = useState({ candidatesAddedToday: 0, interviewsScheduledToday: 0, hiredToday: 0 })
   const TABLE_COLUMNS = [
@@ -114,6 +131,11 @@ export default function AdminDashboard() {
   const [todayStatsLoading, setTodayStatsLoading] = useState(true)
   const [cvLinks, setCvLinks] = useState([])
   const [allowedMap, setAllowedMap] = useState({})
+  const [sessionUser, setSessionUser] = useState(null)
+  const [shareInfoOpen, setShareInfoOpen] = useState(false)
+  const [shareInfoCandidate, setShareInfoCandidate] = useState(null)
+  const [inactiveModalOpen, setInactiveModalOpen] = useState(false)
+  const [inactiveCandidate, setInactiveCandidate] = useState(null)
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -125,7 +147,29 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchOutlets()
     fetchCvLinks()
+    fetchSessionUser()
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    if (t) {
+      fetch("/api/auth/session", { headers: { Authorization: `Bearer ${t}` } })
+        .then((res) => res.json())
+        .then((data) => { if (data.valid && data.user?.id) fetch(`/api/hr?vendorId=${data.user.id}&limit=200`).then((r) => r.ok ? r.json() : {}).then((d) => setHrList(d.data ?? [])).catch(() => setHrList([])) })
+        .catch(() => {})
+    }
   }, [])
+
+  const fetchSessionUser = async () => {
+    try {
+      const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+      if (!t) return
+      const res = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${t}` } })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.user) setSessionUser(data.user)
+      }
+    } catch (e) {
+      console.error("Error fetching session:", e)
+    }
+  }
 
   useEffect(() => {
     const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
@@ -358,15 +402,50 @@ export default function AdminDashboard() {
     else setSelectedCandidates(filteredCandidates.map((c) => c.id))
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this candidate?")) return
+  const handleDelete = (candidate) => {
+    setDeleteCandidate(candidate)
+    setDeleteModalOpen(true)
+  }
+
+  const handleDeleteConfirm = async (candidate) => {
     try {
-      const res = await fetch(`/api/candidates/${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/candidates/${candidate.id}`, { method: "DELETE" })
       if (!res.ok) throw new Error("Failed to delete")
       toast.success("Candidate deleted")
       fetchCandidates()
     } catch (e) {
       toast.error(e.message || "Failed to delete")
+    }
+  }
+
+  const openShareInfo = (candidate) => {
+    setShareInfoCandidate(candidate)
+    setShareInfoOpen(true)
+  }
+
+  const handleMarkInactiveClick = (candidate) => {
+    setInactiveCandidate(candidate)
+    setInactiveModalOpen(true)
+  }
+
+  const handleSetActiveStatus = async (candidateId, active, reason, category) => {
+    try {
+      const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+      const res = await fetch(`/api/candidates/${candidateId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) },
+        body: JSON.stringify({
+          isActive: active,
+          ...(active === false && { inactiveReason: reason || null, inactiveReasonCategory: category || null }),
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to update")
+      toast.success(active ? "Candidate activated" : "Candidate marked inactive")
+      setInactiveModalOpen(false)
+      setInactiveCandidate(null)
+      fetchCandidates()
+    } catch (e) {
+      toast.error(e.message || "Failed to update")
     }
   }
 
@@ -432,10 +511,15 @@ export default function AdminDashboard() {
     setHistoryPage(1)
     setHistoryModalOpen(true)
     try {
-      const res = await fetch(`/api/candidates/${candidate.id}/schedules`)
-      setHistorySchedules(res.ok ? await res.json() : [])
+      const [schedRes, replRes] = await Promise.all([
+        fetch(`/api/candidates/${candidate.id}/schedules`),
+        fetch(`/api/candidates/${candidate.id}/replacements`),
+      ])
+      setHistorySchedules(schedRes.ok ? await schedRes.json() : [])
+      setHistoryReplacements(replRes.ok ? await replRes.json() : [])
     } catch {
       setHistorySchedules([])
+      setHistoryReplacements([])
     }
   }
 
@@ -443,22 +527,57 @@ export default function AdminDashboard() {
     e.preventDefault()
     if (!editCandidate) return
     setEditSubmitting(true)
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
     try {
       const res = await fetch(`/api/candidates/${editCandidate.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(editForm),
       })
       if (!res.ok) throw new Error((await res.json()).error || "Failed to update")
-      toast.success("Candidate updated")
+      if (replaceWithChecked && replacementForm.replacementCandidateId && replacementForm.outletId && replacementForm.position && replacementForm.dateOfJoining && replacementForm.exitDate) {
+        const replRes = await fetch("/api/replacements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({
+            replacedCandidateId: editCandidate.id,
+            replacementCandidateId: parseInt(replacementForm.replacementCandidateId, 10),
+            outletId: parseInt(replacementForm.outletId, 10),
+            position: replacementForm.position.trim(),
+            replacedHrId: replacementForm.replacedHrId || null,
+            replacementHrId: replacementForm.replacementHrId || null,
+            dateOfJoining: replacementForm.dateOfJoining,
+            exitDate: replacementForm.exitDate,
+            salary: replacementForm.salary?.trim() || null,
+          }),
+        })
+        if (!replRes.ok) throw new Error((await replRes.json()).error || "Failed to create replacement")
+        toast.success("Candidate updated and replacement recorded")
+      } else {
+        toast.success("Candidate updated")
+      }
       setEditModalOpen(false)
       setEditCandidate(null)
+      setReplaceWithChecked(false)
+      setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
       fetchCandidates()
     } catch (err) {
       toast.error(err.message || "Failed to update")
     } finally {
       setEditSubmitting(false)
     }
+  }
+
+  const searchReplacementCandidates = (q) => {
+    if (!q || !q.trim()) { setReplacementCandidateOptions([]); return }
+    fetch(`/api/candidates?search=${encodeURIComponent(q.trim())}&limit=20`)
+      .then((res) => res.ok ? res.json() : { data: [] })
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data.data ?? [])
+        const exclude = editCandidate?.id ? list.filter((c) => c.id !== editCandidate.id) : list
+        setReplacementCandidateOptions(exclude)
+      })
+      .catch(() => setReplacementCandidateOptions([]))
   }
 
   return (
@@ -667,21 +786,22 @@ export default function AdminDashboard() {
                             <div className="text-xs text-gray-400 flex items-center"><Phone className="w-3 h-3 mr-1" />{candidate.phone}</div>
                           </div>
                         </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {allowedMap.action_view_details !== false && <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}><Eye className="w-4 h-4 mr-2" /> View Details</DropdownMenuItem>}
-                            {allowedMap.action_edit !== false && <DropdownMenuItem onClick={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "" }); setEditModalOpen(true) }}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>}
-                            {allowedMap.action_call !== false && <DropdownMenuItem asChild><a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a></DropdownMenuItem>}
-                            {allowedMap.action_email !== false && <DropdownMenuItem asChild><a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a></DropdownMenuItem>}
-                            {allowedMap.action_schedule_interview !== false && <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}><Calendar className="w-4 h-4 mr-2" /> Schedule Interview</DropdownMenuItem>}
-                            {allowedMap.action_download_resume !== false && <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}><Download className="w-4 h-4 mr-2" /> Download Resume</DropdownMenuItem>}
-                            {allowedMap.action_history !== false && <DropdownMenuItem onClick={() => openHistoryModal(candidate)}><History className="w-4 h-4 mr-2" /> History</DropdownMenuItem>}
-                            {allowedMap.action_activate_cv_link !== false && <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Activate CV Link</DropdownMenuItem>}
-                            {allowedMap.action_deactivate_cv_link !== false && <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}><Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link</DropdownMenuItem>}
-                            {allowedMap.action_delete !== false && <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <CandidateActionMenu
+                          candidate={candidate}
+                          allowedMap={allowedMap}
+                          sessionUser={sessionUser}
+                          onViewDetails={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}
+                          onShareInfo={() => openShareInfo(candidate)}
+                          onEdit={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] }); setReplaceWithChecked(false); setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" }); setEditModalOpen(true) }}
+                          onScheduleInterview={() => openScheduleModal(candidate)}
+                          onHistory={() => openHistoryModal(candidate)}
+                          onActivateCvLink={() => handleActivateCvLink(candidate)}
+                          onDeactivateCvLink={() => handleDeactivateCvLink(candidate)}
+                          onMarkInactive={() => handleMarkInactiveClick(candidate)}
+                          onActivate={() => handleSetActiveStatus(candidate.id, true)}
+                          onDelete={() => handleDelete(candidate)}
+                          onDownloadResume={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")}
+                        />
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 items-center">
                         {getStatusBadge(candidate.status)}
@@ -793,69 +913,28 @@ export default function AdminDashboard() {
                         </TableCell>
                       )}
                       <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreHorizontal className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {allowedMap.action_view_details !== false && (
-                              <DropdownMenuItem onClick={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}>
-                                <Eye className="w-4 h-4 mr-2" /> View Details
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_edit !== false && (
-                              <DropdownMenuItem onClick={() => {
-                                setEditCandidate(candidate)
-                                setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] })
-                                setEditModalOpen(true)
-                              }}>
-                                <Edit className="w-4 h-4 mr-2" /> Edit
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_call !== false && (
-                              <DropdownMenuItem asChild>
-                                <a href={`tel:${candidate.phone}`}><Phone className="w-4 h-4 mr-2" /> Call</a>
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_email !== false && (
-                              <DropdownMenuItem asChild>
-                                <a href={candidate.email ? `mailto:${candidate.email}` : "#"}><Mail className="w-4 h-4 mr-2" /> Email</a>
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_schedule_interview !== false && (
-                              <DropdownMenuItem onClick={() => openScheduleModal(candidate)} disabled={candidate.isActive === false}>
-                                <Calendar className="w-4 h-4 mr-2" /> Schedule Interview
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_download_resume !== false && (
-                              <DropdownMenuItem onClick={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")} disabled={!candidate.resume}>
-                                <Download className="w-4 h-4 mr-2" /> Download Resume
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_history !== false && (
-                              <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
-                                <History className="w-4 h-4 mr-2" /> History
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_activate_cv_link !== false && (
-                              <DropdownMenuItem onClick={() => handleActivateCvLink(candidate)}>
-                                <Link2 className="w-4 h-4 mr-2" /> Activate CV Link
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_deactivate_cv_link !== false && (
-                              <DropdownMenuItem onClick={() => handleDeactivateCvLink(candidate)}>
-                                <Link2 className="w-4 h-4 mr-2" /> Deactivate CV Link
-                              </DropdownMenuItem>
-                            )}
-                            {allowedMap.action_delete !== false && (
-                              <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(candidate.id)}>
-                                <Trash2 className="w-4 h-4 mr-2" /> Delete
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <CandidateActionMenu
+                          candidate={candidate}
+                          allowedMap={allowedMap}
+                          sessionUser={sessionUser}
+                          onViewDetails={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}
+                          onShareInfo={() => openShareInfo(candidate)}
+                          onEdit={() => {
+                            setEditCandidate(candidate)
+                            setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] })
+                            setReplaceWithChecked(false)
+                            setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
+                            setEditModalOpen(true)
+                          }}
+                          onScheduleInterview={() => openScheduleModal(candidate)}
+                          onHistory={() => openHistoryModal(candidate)}
+                          onActivateCvLink={() => handleActivateCvLink(candidate)}
+                          onDeactivateCvLink={() => handleDeactivateCvLink(candidate)}
+                          onMarkInactive={() => handleMarkInactiveClick(candidate)}
+                          onActivate={() => handleSetActiveStatus(candidate.id, true)}
+                          onDelete={() => handleDelete(candidate)}
+                          onDownloadResume={() => candidate.resume && window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")}
+                        />
                       </TableCell>
                     </TableRow>
                   ))
@@ -968,133 +1047,46 @@ export default function AdminDashboard() {
           </DialogContent>
         </Dialog>
 
-        {/* History modal */}
-        <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
-          <DialogContent className="max-h-[90vh] flex flex-col sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Interview History</DialogTitle>
-              <DialogDescription>
-                {historyCandidate
-                  ? `Previously scheduled / tagged for ${historyCandidate.name}`
-                  : ""}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 flex flex-col flex-1 min-h-0">
-              {historySchedules.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No scheduled interviews yet.</p>
-              ) : (
-                <>
-                  <div className="overflow-x-auto overflow-y-auto flex-1 rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-12">S.No</TableHead>
-                          <TableHead>Outlets</TableHead>
-                          <TableHead>Interview date</TableHead>
-                          <TableHead>Tag date & time</TableHead>
-                          <TableHead>Remark</TableHead>
-                          <TableHead>Tagged by</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {historySchedules
-                          .slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE)
-                          .map((s, idx) => (
-                          <TableRow key={s.id}>
-                            <TableCell className="font-mono">{(historyPage - 1) * HISTORY_PAGE_SIZE + idx + 1}</TableCell>
-                            <TableCell>{s.outlet?.name ?? "—"}</TableCell>
-                            <TableCell>{s.scheduledAt ? new Date(s.scheduledAt).toLocaleString("en-IN") : "—"}</TableCell>
-                            <TableCell>{s.createdAt ? new Date(s.createdAt).toLocaleString("en-IN") : "—"}</TableCell>
-                            <TableCell>{s.remarks ?? "—"}</TableCell>
-                            <TableCell>{s.taggedBy?.name || s.taggedBy?.email || "—"}</TableCell>
-                            <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {historySchedules.length > HISTORY_PAGE_SIZE && (
-                    <div className="flex items-center justify-between pt-3 border-t mt-3">
-                      <span className="text-sm text-muted-foreground">
-                        Showing {(historyPage - 1) * HISTORY_PAGE_SIZE + 1}-{Math.min(historyPage * HISTORY_PAGE_SIZE, historySchedules.length)} of {historySchedules.length}
-                      </span>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={historyPage <= 1}>
-                          Previous
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => setHistoryPage((p) => p + 1)} disabled={historyPage >= Math.ceil(historySchedules.length / HISTORY_PAGE_SIZE)}>
-                          Next
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CandidateHistoryModal
+          open={historyModalOpen}
+          onOpenChange={setHistoryModalOpen}
+          candidate={historyCandidate}
+          schedules={historySchedules}
+          replacements={historyReplacements}
+          page={historyPage}
+          onPageChange={setHistoryPage}
+        />
 
-        {/* View Details modal */}
-        <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Candidate Details</DialogTitle>
-              <DialogDescription>{viewDetailsCandidate?.name}</DialogDescription>
-            </DialogHeader>
-            {viewDetailsCandidate && (
-              <div className="mt-4 space-y-3 text-sm">
-                <p><span className="font-medium">Phone:</span> {viewDetailsCandidate.phone}</p>
-                <p><span className="font-medium">Email:</span> {viewDetailsCandidate.email || "—"}</p>
-                <p><span className="font-medium">Position:</span> {viewDetailsCandidate.position}</p>
-                <p><span className="font-medium">Experience:</span> {viewDetailsCandidate.experience || "—"}</p>
-                <p><span className="font-medium">Location:</span> {viewDetailsCandidate.location}</p>
-                <p><span className="font-medium">Status:</span> {viewDetailsCandidate.status}</p>
-                <p><span className="font-medium">Expected Salary:</span> {viewDetailsCandidate.salary || "—"}</p>
-                <p><span className="font-medium">Source:</span> {viewDetailsCandidate.source || "—"}</p>
-                {viewDetailsCandidate.skills && <p><span className="font-medium">Skills & Qualifications:</span> {viewDetailsCandidate.skills}</p>}
-                {viewDetailsCandidate.education && <p><span className="font-medium">Education:</span> {viewDetailsCandidate.education}</p>}
-                {viewDetailsCandidate.previousEmployer && <p><span className="font-medium">Previous Employer:</span> {viewDetailsCandidate.previousEmployer}</p>}
-                {viewDetailsCandidate.notes && <p><span className="font-medium">Internal Notes:</span> {viewDetailsCandidate.notes}</p>}
-                {(() => {
-                  const att = viewDetailsCandidate.attachments || []
-                  const firstPath = viewDetailsCandidate.resume || (att[0] && att[0].path)
-                  const allFiles = att.length > 0 ? att : (viewDetailsCandidate.resume ? [{ path: viewDetailsCandidate.resume, name: "Resume" }] : [])
-                  return (
-                    <>
-                      <p><span className="font-medium">Resume:</span>{" "}
-                        {firstPath ? (
-                          <a href={firstPath.startsWith("http") ? firstPath : firstPath} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">View / Download</a>
-                        ) : (
-                          <span className="text-muted-foreground">Unavailable</span>
-                        )}
-                      </p>
-                      {allFiles.length > 1 && (
-                        <p><span className="font-medium">Attached files:</span>{" "}
-                          <span className="ml-2">
-                            {allFiles.map((f, i) => (
-                              <span key={i}>
-                                <a href={(f.path || "").startsWith("http") ? f.path : f.path} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">{f.name || `File ${i + 1}`}</a>
-                                {i < allFiles.length - 1 ? ", " : ""}
-                              </span>
-                            ))}
-                          </span>
-                        </p>
-                      )}
-                      <p><span className="font-medium">Resume last updated:</span>{" "}
-                        {viewDetailsCandidate.resumeUpdatedAt ? new Date(viewDetailsCandidate.resumeUpdatedAt).toLocaleString("en-IN") : "—"}
-                      </p>
-                      <p><span className="font-medium">Applied:</span> {viewDetailsCandidate.appliedDate}</p>
-                      <p><span className="font-medium">Last updated:</span>{" "}
-                        {viewDetailsCandidate.updatedAt ? new Date(viewDetailsCandidate.updatedAt).toLocaleString("en-IN") : "—"}
-                      </p>
-                    </>
-                  )
-                })()}
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        <CandidateViewDetailsModal
+          open={viewDetailsOpen}
+          onOpenChange={setViewDetailsOpen}
+          candidate={viewDetailsCandidate}
+        />
+
+        <CandidateShareInfoModal
+          open={shareInfoOpen}
+          onOpenChange={setShareInfoOpen}
+          candidate={shareInfoCandidate}
+          cvLinks={cvLinks}
+          onSaveIntro={() => fetchCandidates()}
+          onRefresh={fetchCvLinks}
+        />
+
+        <CandidateMarkInactiveModal
+          open={inactiveModalOpen}
+          onOpenChange={(open) => { if (!open) { setInactiveModalOpen(false); setInactiveCandidate(null) } else setInactiveModalOpen(open) }}
+          candidate={inactiveCandidate}
+          onSubmit={async (candidateId, reason, category) => {
+            await handleSetActiveStatus(candidateId, false, reason, category || null)
+          }}
+        />
+
+        <CandidateDeleteConfirmModal
+          open={deleteModalOpen}
+          onOpenChange={setDeleteModalOpen}
+          candidate={deleteCandidate}
+          onConfirm={handleDeleteConfirm}
+        />
 
         {/* Edit modal */}
         <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
@@ -1172,8 +1164,109 @@ export default function AdminDashboard() {
                     id="edit-salary"
                     value={editForm.salary}
                     onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })}
+                    placeholder="Add or edit salary"
                   />
                 </div>
+              </div>
+              <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={replaceWithChecked} onCheckedChange={(c) => setReplaceWithChecked(!!c)} />
+                  <span className="font-medium">Replace this candidate with</span>
+                </label>
+                {replaceWithChecked && (
+                  <>
+                    <div>
+                      <Label>Replacement candidate (who is joining)</Label>
+                      <Popover open={replacementCandidateDropdownOpen} onOpenChange={setReplacementCandidateDropdownOpen}>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-between font-normal mt-1">
+                            <span className="truncate">{replacementForm.replacementCandidateName || "Search by name or phone..."}</span>
+                            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+                          <Input
+                            placeholder="Type to search..."
+                            value={replacementCandidateSearch}
+                            onChange={(e) => { setReplacementCandidateSearch(e.target.value); searchReplacementCandidates(e.target.value) }}
+                            onFocus={() => setReplacementCandidateDropdownOpen(true)}
+                            className="mb-2 h-9"
+                          />
+                          <div className="max-h-48 overflow-y-auto space-y-1">
+                            {replacementCandidateOptions.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="w-full flex flex-col items-start rounded-md px-2 py-1.5 text-sm text-left hover:bg-accent"
+                                onClick={() => {
+                                  setReplacementForm((prev) => ({ ...prev, replacementCandidateId: String(c.id), replacementCandidateName: `${c.name} (${c.phone})` }))
+                                  setReplacementCandidateDropdownOpen(false)
+                                  setReplacementCandidateSearch("")
+                                  setReplacementCandidateOptions([])
+                                }}
+                              >
+                                <span className="font-medium">{c.name}</span>
+                                <span className="text-xs text-muted-foreground">{c.phone} · {c.position}</span>
+                              </button>
+                            ))}
+                            {replacementCandidateSearch.trim() && replacementCandidateOptions.length === 0 && <p className="text-sm text-muted-foreground py-2">No candidates found</p>}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Outlet</Label>
+                        <Select value={replacementForm.outletId ? String(replacementForm.outletId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, outletId: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Select outlet" /></SelectTrigger>
+                          <SelectContent>
+                            {outlets.map((o) => (<SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Position (at outlet)</Label>
+                        <Input value={replacementForm.position} onChange={(e) => setReplacementForm((prev) => ({ ...prev, position: e.target.value }))} placeholder="e.g. sous-chef" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Replaced candidate HR (optional)</Label>
+                        <Select value={replacementForm.replacedHrId ? String(replacementForm.replacedHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacedHrId: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">— None —</SelectItem>
+                            {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Replacement candidate HR (optional)</Label>
+                        <Select value={replacementForm.replacementHrId ? String(replacementForm.replacementHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacementHrId: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">— None —</SelectItem>
+                            {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Date of joining (replacement candidate)</Label>
+                        <Input type="date" value={replacementForm.dateOfJoining} onChange={(e) => setReplacementForm((prev) => ({ ...prev, dateOfJoining: e.target.value }))} />
+                      </div>
+                      <div>
+                        <Label>Exit date (this candidate)</Label>
+                        <Input type="date" value={replacementForm.exitDate} onChange={(e) => setReplacementForm((prev) => ({ ...prev, exitDate: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Salary (for replacement)</Label>
+                      <Input value={replacementForm.salary} onChange={(e) => setReplacementForm((prev) => ({ ...prev, salary: e.target.value }))} placeholder="Optional" />
+                    </div>
+                  </>
+                )}
               </div>
               <div>
                 <Label>Attached files</Label>

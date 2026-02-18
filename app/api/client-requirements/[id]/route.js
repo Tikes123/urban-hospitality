@@ -44,7 +44,6 @@ export async function PUT(request, { params }) {
     const body = await request.json()
     const {
       outletId,
-      designationId,
       designation,
       numberOfOpenings,
       gender,
@@ -59,7 +58,6 @@ export async function PUT(request, { params }) {
 
     const updateData = {}
     if (outletId !== undefined) updateData.outletId = outletId ? parseInt(outletId, 10) : null
-    if (designationId !== undefined) updateData.designationId = designationId ? parseInt(designationId, 10) : null
     if (designation !== undefined) updateData.designation = designation
     if (numberOfOpenings !== undefined) updateData.numberOfOpenings = parseInt(numberOfOpenings, 10)
     if (gender !== undefined) updateData.gender = gender || null

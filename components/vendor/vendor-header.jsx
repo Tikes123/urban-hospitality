@@ -29,8 +29,8 @@ const FALLBACK_NAV = [
   { menuKey: "applicants", href: "/vendor/applicants", label: "Applicants" },
   { menuKey: "outlets", href: "/vendor/outlets", label: "Outlets" },
   { menuKey: "calendar", href: "/vendor/calendar", label: "Calendar" },
+  { menuKey: "replacements", href: "/vendor/replacements", label: "Replacements" },
   { menuKey: "cv-links", href: "/vendor/cv-links", label: "Active CV Links" },
-  { menuKey: "designation", href: "/vendor/designation", label: "Designation" },
   { menuKey: "client", href: "/vendor/client", label: "Client" },
   { menuKey: "manage-hr", href: "/vendor/manage-hr", label: "Manage HR" },
 ]

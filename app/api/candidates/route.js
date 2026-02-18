@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 
 function parseBody(body) {
   const {
-    name, email, phone, position, designationId, experience, location,
+    name, email, phone, position, experience, location,
     availability, salary, skills, education, previousEmployer, references,
     notes, status, source, rating, resume, attachments,
   } = body
@@ -18,7 +18,6 @@ function parseBody(body) {
     email: email || null,
     phone,
     position,
-    designationId: designationId ? parseInt(designationId) : null,
     experience,
     location,
     availability: availability || null,
@@ -125,7 +124,7 @@ export async function GET(request) {
       prisma.candidate.count({ where }),
       prisma.candidate.findMany({
         where,
-        include: { designation: true, addedByHr: true },
+        include: { addedByHr: true },
         orderBy: { appliedDate: "desc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -201,7 +200,6 @@ export async function POST(request) {
     const createData = {
       ...data,
       phone: normalizedPhone,
-      designationId: data.designationId || null,
     }
     if (createData.resume || createData.attachments) createData.resumeUpdatedAt = new Date()
 
@@ -215,7 +213,6 @@ export async function POST(request) {
 
     const candidate = await prisma.candidate.create({
       data: createData,
-      include: { designation: true },
     })
 
     return NextResponse.json({

@@ -17,22 +17,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { VendorHeader } from "@/components/vendor/vendor-header"
 import {
   ArrowLeft,
   CalendarIcon,
   Clock,
   MapPin,
-  MoreHorizontal,
   Eye,
   Download,
-  Edit,
   History,
   Video,
   Phone,
@@ -42,6 +34,12 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Pagination } from "@/components/ui/pagination"
+import { CandidateActionMenu } from "@/components/modals/candidate-action-menu"
+import { CandidateViewDetailsModal } from "@/components/modals/candidate-view-details-modal"
+import { CandidateHistoryModal } from "@/components/modals/candidate-history-modal"
+import { CandidateShareInfoModal } from "@/components/modals/candidate-share-info-modal"
+import { CandidateMarkInactiveModal } from "@/components/modals/candidate-mark-inactive-modal"
+import { CandidateDeleteConfirmModal } from "@/components/modals/candidate-delete-confirm-modal"
 
 const statusOptions = [
   "recently-applied",
@@ -100,15 +98,57 @@ export default function DayCalendarPage() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyCandidate, setHistoryCandidate] = useState(null)
   const [historySchedules, setHistorySchedules] = useState([])
+  const [historyReplacements, setHistoryReplacements] = useState([])
+  const [historyPage, setHistoryPage] = useState(1)
+  const [viewDetailsOpen, setViewDetailsOpen] = useState(false)
+  const [viewDetailsCandidate, setViewDetailsCandidate] = useState(null)
   const [onlyJoining, setOnlyJoining] = useState(false)
   const [filterUser, setFilterUser] = useState("")
   const [users, setUsers] = useState([])
   const [sessionUser, setSessionUser] = useState(null)
+  const [allowedMap, setAllowedMap] = useState({})
+  const [cvLinks, setCvLinks] = useState([])
+  const [shareInfoOpen, setShareInfoOpen] = useState(false)
+  const [shareInfoCandidate, setShareInfoCandidate] = useState(null)
+  const [inactiveModalOpen, setInactiveModalOpen] = useState(false)
+  const [inactiveCandidate, setInactiveCandidate] = useState(null)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteCandidate, setDeleteCandidate] = useState(null)
 
   useEffect(() => {
     fetchUsers()
     fetchSessionUser()
+    fetchPermissions()
+    fetchCvLinks()
   }, [])
+
+  const fetchPermissions = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+      if (!token) return
+      const hrId = typeof window !== "undefined" ? localStorage.getItem("vendor_view_as_hr_id") : null
+      const permUrl = hrId ? `/api/vendor/menu-permissions?hrId=${hrId}` : "/api/vendor/menu-permissions"
+      const res = await fetch(permUrl, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) {
+        const data = await res.json()
+        setAllowedMap(data.allowedMap || {})
+      }
+    } catch (error) {
+      console.error("Error fetching permissions:", error)
+    }
+  }
+
+  const fetchCvLinks = async () => {
+    try {
+      const res = await fetch("/api/cv-links")
+      if (res.ok) {
+        const data = await res.json()
+        setCvLinks(Array.isArray(data) ? data : [])
+      }
+    } catch (error) {
+      console.error("Error fetching CV links:", error)
+    }
+  }
 
   useEffect(() => {
     if (dateParam) {
@@ -332,12 +372,151 @@ export default function DayCalendarPage() {
 
   const openHistoryModal = async (candidate) => {
     setHistoryCandidate(candidate)
+    setHistoryPage(1)
     setHistoryModalOpen(true)
     try {
-      const res = await fetch(`/api/candidates/${candidate.id}/schedules`)
-      setHistorySchedules(res.ok ? await res.json() : [])
+      const [schedRes, replRes] = await Promise.all([
+        fetch(`/api/candidates/${candidate.id}/schedules`),
+        fetch(`/api/candidates/${candidate.id}/replacements`),
+      ])
+      setHistorySchedules(schedRes.ok ? await schedRes.json() : [])
+      setHistoryReplacements(replRes.ok ? await replRes.json() : [])
     } catch {
       setHistorySchedules([])
+      setHistoryReplacements([])
+    }
+  }
+
+  const handleViewDetails = (candidate) => {
+    setViewDetailsCandidate(candidate)
+    setViewDetailsOpen(true)
+  }
+
+  const handleShareInfo = (candidate) => {
+    setShareInfoCandidate(candidate)
+    setShareInfoOpen(true)
+  }
+
+  const handleEdit = (candidate) => {
+    router.push(`/vendor/applicants?edit=${candidate.id}`)
+  }
+
+  const handleScheduleInterview = (candidate) => {
+    if (candidate.isActive === false) {
+      toast.error("Cannot schedule interview for an inactive candidate. Activate the candidate first.")
+      return
+    }
+    router.push(`/vendor/applicants?schedule=${candidate.id}`)
+  }
+
+  const handleDownloadResume = (candidate) => {
+    if (candidate.resume) {
+      window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")
+    }
+  }
+
+  const handleActivateCvLink = async (candidate) => {
+    try {
+      const res = await fetch(`/api/cv-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: candidate.id,
+          candidateName: candidate.name,
+          position: candidate.position,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to activate")
+      toast.success("CV link activated")
+      fetchCvLinks()
+    } catch (error) {
+      toast.error(error.message || "Failed to activate CV link")
+    }
+  }
+
+  const handleDeactivateCvLink = async (candidate) => {
+    const link = cvLinks.find((l) => l.candidateId === candidate.id && l.status === "active")
+    if (!link) {
+      toast.error("No active CV link found")
+      return
+    }
+    try {
+      const res = await fetch(`/api/cv-links/${link.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "paused" }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to deactivate")
+      toast.success("CV link deactivated")
+      fetchCvLinks()
+    } catch (error) {
+      toast.error(error.message || "Failed to deactivate CV link")
+    }
+  }
+
+  const handleMarkInactive = (candidate) => {
+    setInactiveCandidate(candidate)
+    setInactiveModalOpen(true)
+  }
+
+  const handleInactiveSubmit = async (candidateId, reason, category) => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+      if (!token) {
+        toast.error("Please log in to change active status")
+        return
+      }
+      const body = { isActive: false }
+      if (reason != null) body.inactiveReason = String(reason).trim() || null
+      if (category && ["behaviour", "theft_fraud", "absconded", "skill_mismatch"].includes(category)) {
+        body.inactiveReasonCategory = category
+      }
+      const res = await fetch(`/api/candidates/${candidateId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to update")
+      toast.success("Candidate marked inactive")
+      fetchDayData()
+    } catch (error) {
+      throw error
+    }
+  }
+
+  const handleActivate = async (candidate) => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+      if (!token) {
+        toast.error("Please log in to change active status")
+        return
+      }
+      const res = await fetch(`/api/candidates/${candidate.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ isActive: true }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to activate")
+      toast.success("Candidate activated")
+      fetchDayData()
+    } catch (error) {
+      toast.error(error.message || "Failed to activate candidate")
+    }
+  }
+
+  const handleDelete = (candidate) => {
+    setDeleteCandidate(candidate)
+    setDeleteModalOpen(true)
+  }
+
+  const handleDeleteConfirm = async (candidate) => {
+    try {
+      const res = await fetch(`/api/candidates/${candidate.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to delete")
+      toast.success("Candidate deleted")
+      fetchDayData()
+    } catch (error) {
+      toast.error(error.message || "Failed to delete candidate")
     }
   }
 
@@ -579,39 +758,22 @@ export default function DayCalendarPage() {
                             <TableCell>{getStatusBadge(candidate.status)}</TableCell>
                             <TableCell>{candidate.addedByHr?.name || candidate.addedBy || "—"}</TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-2">
-                                {candidate.resume && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => window.open(candidate.resume.startsWith("/") ? candidate.resume : candidate.resume, "_blank")}
-                                  >
-                                    <Eye className="w-4 h-4 mr-1" />
-                                    View CV
-                                  </Button>
-                                )}
-                                <Button variant="ghost" size="sm">
-                                  <Link2 className="w-4 h-4 mr-1" />
-                                  Generate CV Link
-                                </Button>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm">
-                                      <MoreHorizontal className="w-4 h-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => router.push(`/vendor/applicants?edit=${candidate.id}`)}>
-                                      <Edit className="w-4 h-4 mr-2" />
-                                      Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => openHistoryModal(candidate)}>
-                                      <History className="w-4 h-4 mr-2" />
-                                      History
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
+                              <CandidateActionMenu
+                                candidate={candidate}
+                                allowedMap={allowedMap}
+                                sessionUser={sessionUser}
+                                onViewDetails={() => handleViewDetails(candidate)}
+                                onShareInfo={() => handleShareInfo(candidate)}
+                                onEdit={() => handleEdit(candidate)}
+                                onScheduleInterview={() => handleScheduleInterview(candidate)}
+                                onHistory={() => openHistoryModal(candidate)}
+                                onActivateCvLink={() => handleActivateCvLink(candidate)}
+                                onDeactivateCvLink={() => handleDeactivateCvLink(candidate)}
+                                onMarkInactive={() => handleMarkInactive(candidate)}
+                                onActivate={() => handleActivate(candidate)}
+                                onDelete={() => handleDelete(candidate)}
+                                onDownloadResume={() => handleDownloadResume(candidate)}
+                              />
                             </TableCell>
                           </TableRow>
                         )
@@ -634,47 +796,49 @@ export default function DayCalendarPage() {
           </CardContent>
         </Card>
 
+        {/* View Details Modal */}
+        <CandidateViewDetailsModal
+          open={viewDetailsOpen}
+          onOpenChange={setViewDetailsOpen}
+          candidate={viewDetailsCandidate}
+        />
+
+        {/* Share Info Modal */}
+        <CandidateShareInfoModal
+          open={shareInfoOpen}
+          onOpenChange={setShareInfoOpen}
+          candidate={shareInfoCandidate}
+          cvLinks={cvLinks}
+          onSaveIntro={() => fetchDayData()}
+          onRefresh={() => fetchCvLinks()}
+        />
+
         {/* History Modal */}
-        <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Interview History</DialogTitle>
-            </DialogHeader>
-            <div className="mt-4">
-              {historySchedules.length === 0 ? (
-                <p className="text-gray-500 text-sm">No history available.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Outlet</TableHead>
-                      <TableHead>Scheduled At</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Remarks</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {historySchedules.map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell>{s.outlet?.name || "—"}</TableCell>
-                        <TableCell>{s.scheduledAt ? new Date(s.scheduledAt).toLocaleString("en-IN") : "—"}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            {getMeetingTypeIcon(s.type?.toLowerCase())}
-                            <span className="capitalize">{s.type || "—"}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{s.status ? getStatusBadge(s.status) : "—"}</TableCell>
-                        <TableCell>{s.remarks || "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CandidateHistoryModal
+          open={historyModalOpen}
+          onOpenChange={setHistoryModalOpen}
+          candidate={historyCandidate}
+          schedules={historySchedules}
+          replacements={historyReplacements}
+          page={historyPage}
+          onPageChange={setHistoryPage}
+        />
+
+        {/* Mark Inactive Modal */}
+        <CandidateMarkInactiveModal
+          open={inactiveModalOpen}
+          onOpenChange={setInactiveModalOpen}
+          candidate={inactiveCandidate}
+          onSubmit={handleInactiveSubmit}
+        />
+
+        {/* Delete Confirm Modal */}
+        <CandidateDeleteConfirmModal
+          open={deleteModalOpen}
+          onOpenChange={setDeleteModalOpen}
+          candidate={deleteCandidate}
+          onConfirm={handleDeleteConfirm}
+        />
       </main>
     </div>
   )

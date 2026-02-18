@@ -99,6 +99,31 @@ async function main() {
     }
   }
   console.log("Done.", added, "new venue(s) added.")
+
+  // Seed candidate statuses if empty
+  try {
+    const statusCount = await prisma.candidateStatus.count()
+    if (statusCount === 0) {
+      const CANDIDATE_STATUSES = [
+        { value: "standby-cv", label: "Standby CV", color: "bg-slate-100 text-slate-800 border-slate-200", sortOrder: 1 },
+        { value: "online-telephonic-interview", label: "Online/Telephonic Interview", color: "bg-sky-100 text-sky-800 border-sky-200", sortOrder: 2 },
+        { value: "online-interview-done-waiting-results", label: "Online Interview Done - Waiting Results", color: "bg-amber-100 text-amber-800 border-amber-200", sortOrder: 3 },
+        { value: "waiting-for-call-back", label: "Waiting for Call Back", color: "bg-blue-100 text-blue-800 border-blue-200", sortOrder: 4 },
+        { value: "waiting-resume-location-not-sent", label: "Waiting for Resume-Location Not Sent", color: "bg-orange-100 text-orange-800 border-orange-200", sortOrder: 5 },
+        { value: "recently-applied", label: "Recently Applied", color: "bg-green-100 text-green-800 border-green-200", sortOrder: 6 },
+        { value: "suggested", label: "Suggested", color: "bg-blue-100 text-blue-800 border-blue-200", sortOrder: 7 },
+        { value: "backed-out", label: "Backed Out", color: "bg-red-100 text-red-800 border-red-200", sortOrder: 8 },
+        { value: "interview-scheduled", label: "Interview Scheduled", color: "bg-yellow-100 text-yellow-800 border-yellow-200", sortOrder: 9 },
+        { value: "hired", label: "Hired", color: "bg-purple-100 text-purple-800 border-purple-200", sortOrder: 10 },
+      ]
+      await prisma.candidateStatus.createMany({ data: CANDIDATE_STATUSES })
+      console.log("Created", CANDIDATE_STATUSES.length, "candidate statuses.")
+    }
+  } catch (e) {
+    if (e.code === "P2021" || (e.meta && e.meta.driverAdapterError)) {
+      console.warn("candidate_statuses table missing? Run migration. Skipping status seed.")
+    } else throw e
+  }
 }
 
 main()
