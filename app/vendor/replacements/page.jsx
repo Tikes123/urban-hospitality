@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { VendorHeader } from "@/components/vendor/vendor-header"
-import { ArrowLeft, UserReplace, Loader2 } from "lucide-react"
+import { ArrowLeft, Users, Loader2 } from "lucide-react"
 
 function authHeaders() {
   const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
@@ -38,7 +38,7 @@ export default function ReplacementsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <UserReplace className="h-6 w-6" />
+              <Users className="h-6 w-6" />
               Replacements
             </CardTitle>
             <CardDescription>
