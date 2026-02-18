@@ -71,6 +71,7 @@ export default function AdminDashboard() {
   const [scheduleCandidate, setScheduleCandidate] = useState(null)
   const [scheduleSlots, setScheduleSlots] = useState([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false)
+  const [samePositionOutlets, setSamePositionOutlets] = useState([])
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyCandidate, setHistoryCandidate] = useState(null)
   const [historySchedules, setHistorySchedules] = useState([])
@@ -207,6 +208,22 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchCandidates()
   }, [page, limit, statusFilter, positionFilter])
+
+  useEffect(() => {
+    if (!scheduleModalOpen || !scheduleCandidate?.position) {
+      setSamePositionOutlets([])
+      return
+    }
+    const pos = String(scheduleCandidate.position).trim()
+    if (!pos) {
+      setSamePositionOutlets([])
+      return
+    }
+    fetch(`/api/outlets?position=${encodeURIComponent(pos)}&limit=200`)
+      .then((res) => (res.ok ? res.json() : { data: [] }))
+      .then((json) => setSamePositionOutlets(Array.isArray(json) ? json : (json.data ?? [])))
+      .catch(() => setSamePositionOutlets([]))
+  }, [scheduleModalOpen, scheduleCandidate?.position])
 
   const fetchCandidates = async () => {
     try {
@@ -463,6 +480,10 @@ export default function AdminDashboard() {
     setScheduleSlots((prev) => [...prev, { outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
   }
 
+  const addScheduleSlotForOutlet = (outletId) => {
+    setScheduleSlots((prev) => [...prev, { outletId: String(outletId), scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
+  }
+
   const updateScheduleSlot = (index, field, value) => {
     setScheduleSlots((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)))
   }
@@ -526,6 +547,10 @@ export default function AdminDashboard() {
   const handleEditSubmit = async (e) => {
     e.preventDefault()
     if (!editCandidate) return
+    if (replaceWithChecked && (!replacementForm.exitDate || !replacementForm.dateOfJoining || !replacementForm.outletId || !replacementForm.position || !replacementForm.replacementCandidateId)) {
+      toast.error("When replacing: select replacement candidate, outlet, position, date of joining, and exit date (this candidate).")
+      return
+    }
     setEditSubmitting(true)
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
     try {
@@ -560,11 +585,24 @@ export default function AdminDashboard() {
       setEditCandidate(null)
       setReplaceWithChecked(false)
       setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
+      syncLocationAndPositionToDataManagement(editForm.location, editForm.position)
       fetchCandidates()
     } catch (err) {
       toast.error(err.message || "Failed to update")
     } finally {
       setEditSubmitting(false)
+    }
+  }
+
+  const syncLocationAndPositionToDataManagement = (location, position) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    if (!token) return
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    if (location && String(location).trim()) {
+      fetch("/api/vendor/locations", { method: "POST", headers, body: JSON.stringify({ value: String(location).trim() }) }).catch(() => {})
+    }
+    if (position && String(position).trim()) {
+      fetch("/api/vendor/positions", { method: "POST", headers, body: JSON.stringify({ name: String(position).trim() }) }).catch(() => {})
     }
   }
 
@@ -792,7 +830,7 @@ export default function AdminDashboard() {
                           sessionUser={sessionUser}
                           onViewDetails={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}
                           onShareInfo={() => openShareInfo(candidate)}
-                          onEdit={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] }); setReplaceWithChecked(false); setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" }); setEditModalOpen(true) }}
+                          onEdit={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location, salary: candidate.salary || "", attachments: candidate.attachments || [] }); setReplaceWithChecked(false); setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: candidate.position || "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" }); setEditModalOpen(true) }}
                           onScheduleInterview={() => openScheduleModal(candidate)}
                           onHistory={() => openHistoryModal(candidate)}
                           onActivateCvLink={() => handleActivateCvLink(candidate)}
@@ -1036,6 +1074,37 @@ export default function AdminDashboard() {
               <Button type="button" variant="outline" size="sm" onClick={addScheduleSlot} className="w-full">
                 <Plus className="w-4 h-4 mr-2" /> Add another slot
               </Button>
+              {scheduleCandidate?.position && (() => {
+                const outletsToShow = samePositionOutlets.length > 0 ? samePositionOutlets : outlets
+                const available = outletsToShow.filter((o) => !scheduleSlots.some((s) => s.outletId === String(o.id)))
+                if (available.length === 0) return null
+                return (
+                  <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
+                    <p className="text-sm font-medium">
+                      {samePositionOutlets.length > 0
+                        ? `Tag to more outlets (same position: ${scheduleCandidate.position})`
+                        : `Other outlets (add slot for position: ${scheduleCandidate.position})`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {samePositionOutlets.length > 0 ? "Add a slot for any outlet that has this position opening." : "Add a slot for another outlet."}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {available.map((o) => (
+                        <Button
+                          key={o.id}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => addScheduleSlotForOutlet(o.id)}
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1.5" />
+                          {o.name}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setScheduleModalOpen(false)}>Cancel</Button>
                 <Button type="submit" disabled={scheduleSubmitting}>
@@ -1219,33 +1288,40 @@ export default function AdminDashboard() {
                         <Label>Outlet</Label>
                         <Select value={replacementForm.outletId ? String(replacementForm.outletId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, outletId: v }))}>
                           <SelectTrigger><SelectValue placeholder="Select outlet" /></SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="z-[100]">
                             {outlets.map((o) => (<SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div>
                         <Label>Position (at outlet)</Label>
-                        <Input value={replacementForm.position} onChange={(e) => setReplacementForm((prev) => ({ ...prev, position: e.target.value }))} placeholder="e.g. sous-chef" />
+                        <Select value={replacementForm.position || ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, position: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
+                          <SelectContent className="z-[100]">
+                            {[...new Set([...(editCandidate?.position ? [editCandidate.position] : []), ...(positionOptions || [])])].filter(Boolean).map((pos) => (
+                              <SelectItem key={pos} value={String(pos)}>{pos}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label>Replaced candidate HR (optional)</Label>
-                        <Select value={replacementForm.replacedHrId ? String(replacementForm.replacedHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacedHrId: v }))}>
+                        <Select value={replacementForm.replacedHrId ? String(replacementForm.replacedHrId) : "__none__"} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacedHrId: v === "__none__" ? "" : v }))}>
                           <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">— None —</SelectItem>
+                            <SelectItem value="__none__">— None —</SelectItem>
                             {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div>
                         <Label>Replacement candidate HR (optional)</Label>
-                        <Select value={replacementForm.replacementHrId ? String(replacementForm.replacementHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacementHrId: v }))}>
+                        <Select value={replacementForm.replacementHrId ? String(replacementForm.replacementHrId) : "__none__"} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacementHrId: v === "__none__" ? "" : v }))}>
                           <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">— None —</SelectItem>
+                            <SelectItem value="__none__">— None —</SelectItem>
                             {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
@@ -1257,8 +1333,8 @@ export default function AdminDashboard() {
                         <Input type="date" value={replacementForm.dateOfJoining} onChange={(e) => setReplacementForm((prev) => ({ ...prev, dateOfJoining: e.target.value }))} />
                       </div>
                       <div>
-                        <Label>Exit date (this candidate)</Label>
-                        <Input type="date" value={replacementForm.exitDate} onChange={(e) => setReplacementForm((prev) => ({ ...prev, exitDate: e.target.value }))} />
+                        <Label>Exit date (this candidate) *</Label>
+                        <Input type="date" value={replacementForm.exitDate} onChange={(e) => setReplacementForm((prev) => ({ ...prev, exitDate: e.target.value }))} required={replaceWithChecked} />
                       </div>
                     </div>
                     <div>

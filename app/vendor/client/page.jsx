@@ -31,11 +31,7 @@ import {
   MapPin,
   Phone,
   Mail,
-  Users,
-  DollarSign,
-  Calendar,
   Star,
-  TrendingUp,
   Hotel,
   UtensilsCrossed,
   Wine,
@@ -256,14 +252,6 @@ export default function ClientPage() {
   }
 
   const filteredClients = clients
-
-  const totalClients = total
-  const activeClients = clients.filter((c) => c.status === "active").length
-  const totalRevenue = clients.reduce((sum, c) => sum + c.contractValue, 0)
-  const avgRating =
-    clients.length > 0
-      ? (clients.reduce((sum, c) => sum + (c.rating || 0), 0) / clients.length).toFixed(1)
-      : "0.0"
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -717,54 +705,6 @@ export default function ClientPage() {
             </div>
           </div>
 
-        {/* Stats Cards */}
-        <div className="grid md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Clients</p>
-                  <p className="text-2xl font-bold">{totalClients}</p>
-                </div>
-                <Building className="w-8 h-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Active Clients</p>
-                  <p className="text-2xl font-bold">{activeClients}</p>
-                </div>
-                <Users className="w-8 h-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Revenue</p>
-                  <p className="text-2xl font-bold">${totalRevenue.toLocaleString()}</p>
-                </div>
-                <DollarSign className="w-8 h-8 text-purple-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Avg. Rating</p>
-                  <p className="text-2xl font-bold">{avgRating}</p>
-                </div>
-                <Star className="w-8 h-8 text-orange-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="p-4">
@@ -928,25 +868,31 @@ export default function ClientPage() {
                               <Edit className="w-4 h-4 mr-2" />
                               Edit Client
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/vendor/add-outlet-client?clientId=${client.id}`}>
+                                <Building className="w-4 h-4 mr-2" />
+                                Add outlet
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => client.phone && (window.location.href = `tel:${client.phone}`)}
+                              disabled={!client.phone}
+                            >
                               <Phone className="w-4 h-4 mr-2" />
                               Call Client
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => client.email && (window.location.href = `mailto:${client.email}`)}
+                              disabled={!client.email}
+                            >
                               <Mail className="w-4 h-4 mr-2" />
                               Send Email
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Calendar className="w-4 h-4 mr-2" />
-                              Schedule Meeting
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <TrendingUp className="w-4 h-4 mr-2" />
-                              View Analytics
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Building className="w-4 h-4 mr-2" />
-                              View Outlets
+                            <DropdownMenuItem asChild>
+                              <Link href={`/vendor/outlets?clientId=${client.id}`}>
+                                <Building className="w-4 h-4 mr-2" />
+                                View Outlets
+                              </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleAddRequirement(client)}>
                               <Plus className="w-4 h-4 mr-2" />

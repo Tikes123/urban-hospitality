@@ -7,6 +7,7 @@ export async function GET(request) {
     const type = searchParams.get("type")
     const search = searchParams.get("search")
     const clientId = searchParams.get("clientId")
+    const position = searchParams.get("position")?.trim() // outlets that have this position opening (JobPosting)
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
     const limit = Math.min(200, Math.max(10, parseInt(searchParams.get("limit") || "50", 10)))
 
@@ -27,6 +28,9 @@ export async function GET(request) {
         { manager: { contains: search } },
         { area: { contains: search } },
       ]
+    }
+    if (position) {
+      where.jobPostings = { some: { position: position } }
     }
 
     const [total, outlets] = await Promise.all([

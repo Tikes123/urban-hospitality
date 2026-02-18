@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -14,26 +14,46 @@ import { ArrowLeft, Loader2, Upload, FileText } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
 
+const DEFAULT_OUTLET_TYPES = [
+  { name: "hotel", id: "hotel" },
+  { name: "restaurant", id: "restaurant" },
+  { name: "bar", id: "bar" },
+]
+
 export default function AddOutletClientPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const clientIdParam = searchParams.get("clientId")
+  const existingClientId = clientIdParam ? parseInt(clientIdParam, 10) : null
+  const isOutletOnlyMode = existingClientId != null && !Number.isNaN(existingClientId)
+
   const [loading, setLoading] = useState(false)
   const [uploadingContract, setUploadingContract] = useState(false)
   const [uploadingOutletImage, setUploadingOutletImage] = useState(false)
-  const [addOutlet, setAddOutlet] = useState(false)
+  const [addOutlet, setAddOutlet] = useState(true)
   const [areas, setAreas] = useState([])
   const [locations, setLocations] = useState([])
-  const [clients, setClients] = useState([])
+  const [outletTypes, setOutletTypes] = useState(DEFAULT_OUTLET_TYPES)
+  const [existingClient, setExistingClient] = useState(null)
   const [formData, setFormData] = useState({
-    // Client fields
-    clientName: "",
-    companyName: "",
-    clientPhone: "",
-    clientEmail: "",
-    clientLocation: "",
-    clientStatus: "active",
+    // Client fields (aligned with Add New Client modal)
+    name: "",
+    type: "hotel",
+    contactPerson: "",
+    email: "",
+    phone: "",
+    address: "",
+    contractStart: "",
+    contractEnd: "",
+    status: "active",
+    contractValue: "",
+    outlets: "0",
+    employees: "0",
+    services: "",
+    notes: "",
     // Outlet fields
     outletName: "",
-    outletType: "",
+    outletType: "hotel",
     outletArea: "",
     outletAddress: "",
     outletPhone: "",
@@ -43,7 +63,6 @@ export default function AddOutletClientPage() {
     outletImage: null,
     outletImageName: "",
     outletGoogleMapLocation: "",
-    // Contract file
     contractFile: null,
     contractFileName: "",
   })
@@ -53,17 +72,36 @@ export default function AddOutletClientPage() {
       .then((res) => (res.ok ? res.json() : []))
       .then(setAreas)
       .catch(() => setAreas([]))
-    
     fetch("/api/outlets/locations")
       .then((res) => (res.ok ? res.json() : []))
       .then(setLocations)
       .catch(() => setLocations([]))
-    
-    fetch("/api/clients?limit=200")
-      .then((res) => (res.ok ? res.json() : {}))
-      .then((json) => setClients(json.data ?? []))
-      .catch(() => setClients([]))
+    const t = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    if (t) {
+      fetch("/api/vendor/outlet-types", { headers: { Authorization: `Bearer ${t}` } })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((list) => (Array.isArray(list) && list.length > 0 ? list.map((o) => ({ id: String(o.id), name: o.name })) : DEFAULT_OUTLET_TYPES))
+        .then(setOutletTypes)
+        .catch(() => setOutletTypes(DEFAULT_OUTLET_TYPES))
+    }
   }, [])
+
+  useEffect(() => {
+    if (!isOutletOnlyMode) return
+    fetch(`/api/clients/${existingClientId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((client) => {
+        setExistingClient(client)
+        if (client) {
+          setFormData((prev) => ({
+            ...prev,
+            outletPhone: client.phone || "",
+            outletEmail: client.email || "",
+          }))
+        }
+      })
+      .catch(() => setExistingClient(null))
+  }, [isOutletOnlyMode, existingClientId])
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0]
@@ -150,12 +188,53 @@ export default function AddOutletClientPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
-    if (!formData.clientName || !formData.clientEmail || !formData.clientPhone) {
-      toast.error("Please fill in all required client fields")
+
+    if (isOutletOnlyMode) {
+      if (!formData.outletName || !formData.outletType || !formData.outletAddress) {
+        toast.error("Please fill in outlet name, type, and address")
+        return
+      }
+      try {
+        setLoading(true)
+        const outletData = {
+          name: formData.outletName,
+          type: formData.outletType,
+          area: formData.outletArea || null,
+          address: formData.outletAddress,
+          phone: formData.outletPhone || existingClient?.phone,
+          email: formData.outletEmail || existingClient?.email,
+          manager: formData.outletManager || "",
+          employees: 0,
+          openPositions: 0,
+          status: formData.outletStatus,
+          image: formData.outletImage,
+          googleMapLocation: formData.outletGoogleMapLocation || null,
+          clientId: existingClientId,
+        }
+        const outletResponse = await fetch("/api/outlets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(outletData),
+        })
+        if (!outletResponse.ok) {
+          const err = await outletResponse.json()
+          throw new Error(err.error || "Failed to create outlet")
+        }
+        toast.success("Outlet added to client successfully")
+        router.push("/vendor/client")
+      } catch (error) {
+        console.error("Error saving outlet:", error)
+        toast.error(error.message || "Failed to save")
+      } finally {
+        setLoading(false)
+      }
       return
     }
 
+    if (!formData.name || !formData.email || !formData.phone || !formData.address || !formData.contactPerson || !formData.contractStart || !formData.contractEnd) {
+      toast.error("Please fill in all required client fields")
+      return
+    }
     if (addOutlet && (!formData.outletName || !formData.outletType || !formData.outletAddress)) {
       toast.error("Please fill in all required outlet fields")
       return
@@ -163,23 +242,22 @@ export default function AddOutletClientPage() {
 
     try {
       setLoading(true)
-
-      // Create client first
       const clientData = {
-        name: formData.clientName,
-        type: formData.outletType || "hotel", // Use outlet type or default
-        contactPerson: formData.clientName,
-        email: formData.clientEmail,
-        phone: formData.clientPhone,
-        address: formData.clientLocation,
+        name: formData.name,
+        type: formData.type,
+        contactPerson: formData.contactPerson,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
         outlets: addOutlet ? 1 : 0,
-        employees: 0,
-        contractValue: 0,
-        contractStart: new Date().toISOString().split("T")[0],
-        contractEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        status: formData.clientStatus,
-        services: JSON.stringify([]),
-        contractFile: formData.contractFile,
+        employees: parseInt(formData.employees, 10) || 0,
+        contractValue: parseFloat(formData.contractValue) || 0,
+        contractStart: formData.contractStart,
+        contractEnd: formData.contractEnd,
+        status: formData.status,
+        services: formData.services ? formData.services.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        notes: formData.notes || null,
+        contractFile: formData.contractFile || null,
       }
 
       const clientResponse = await fetch("/api/clients", {
@@ -196,39 +274,34 @@ export default function AddOutletClientPage() {
       const client = await clientResponse.json()
       toast.success("Client created successfully")
 
-      // Create outlet if requested
       if (addOutlet) {
         const outletData = {
           name: formData.outletName,
           type: formData.outletType,
-          area: formData.outletArea,
+          area: formData.outletArea || null,
           address: formData.outletAddress,
-          phone: client.phone, // Always use client phone since outlet is associated with client
-          email: client.email, // Always use client email since outlet is associated with client
-          manager: "", // Manager field removed from form, set to empty string
+          phone: client.phone,
+          email: client.email,
+          manager: formData.outletManager || "",
           employees: 0,
           openPositions: 0,
           status: formData.outletStatus,
           image: formData.outletImage,
-          googleMapLocation: formData.outletGoogleMapLocation,
+          googleMapLocation: formData.outletGoogleMapLocation || null,
           clientId: client.id,
         }
-
         const outletResponse = await fetch("/api/outlets", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(outletData),
         })
-
         if (!outletResponse.ok) {
           const error = await outletResponse.json()
           throw new Error(error.error || "Failed to create outlet")
         }
-
         toast.success("Outlet created successfully")
       }
 
-      // Redirect to appropriate page
       router.push(addOutlet ? "/vendor/outlets" : "/vendor/client")
     } catch (error) {
       console.error("Error saving:", error)
@@ -245,7 +318,7 @@ export default function AddOutletClientPage() {
         <div className="max-w-4xl mx-auto space-y-6">
           <div className="flex items-center gap-4">
             <Button asChild variant="ghost" size="sm">
-              <Link href="/vendor" className="gap-2">
+              <Link href={isOutletOnlyMode ? "/vendor/client" : "/vendor"} className="gap-2">
                 <ArrowLeft className="w-4 h-4" />
                 Back
               </Link>
@@ -253,108 +326,166 @@ export default function AddOutletClientPage() {
           </div>
 
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Add Client & Outlet</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isOutletOnlyMode ? (existingClient ? `Add outlet for ${existingClient.name}` : "Add outlet") : "Add Client & Outlet"}
+            </h1>
             <p className="text-muted-foreground mt-1">
-              Add a new client and optionally create an outlet in one step. Upload contract file if available.
+              {isOutletOnlyMode
+                ? "Add a new outlet for this client. Phone and email will default to the client."
+                : "Add a new client and optionally create an outlet. Same fields as Add New Client modal."}
             </p>
           </div>
 
           <form onSubmit={handleSubmit}>
             <div className="space-y-6">
-              {/* Client Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Client Information</CardTitle>
-                  <CardDescription>Required information for the client</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="client-name">Client Name *</Label>
-                      <Input
-                        id="client-name"
-                        placeholder="Enter client name"
-                        value={formData.clientName}
-                        onChange={(e) => setFormData({ ...formData, clientName: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="company-name">Company Name</Label>
-                      <Input
-                        id="company-name"
-                        placeholder="Enter company name"
-                        value={formData.companyName}
-                        onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="designation">Designation</Label>
-                      <Input
-                        id="designation"
-                        placeholder="Enter designation"
-                        value={formData.designation}
-                        onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="client-status">Status *</Label>
-                      <Select value={formData.clientStatus} onValueChange={(value) => setFormData({ ...formData, clientStatus: value })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="trial">Trial</SelectItem>
-                          <SelectItem value="renewal-pending">Renewal Pending</SelectItem>
-                          <SelectItem value="expired">Expired</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="client-phone">Client Phone *</Label>
-                      <Input
-                        id="client-phone"
-                        placeholder="Phone number"
-                        value={formData.clientPhone}
-                        onChange={(e) => setFormData({ ...formData, clientPhone: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="client-email">Client Email *</Label>
-                      <Input
-                        id="client-email"
-                        type="email"
-                        placeholder="Email address"
-                        value={formData.clientEmail}
-                        onChange={(e) => setFormData({ ...formData, clientEmail: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="client-location">Client Location</Label>
-                    <Select value={formData.clientLocation} onValueChange={(value) => setFormData({ ...formData, clientLocation: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select location" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {locations.map((loc) => (
-                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
+              {!isOutletOnlyMode && (
+                <>
+                  {/* Client Information - aligned with Add New Client modal */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Client Information</CardTitle>
+                      <CardDescription>Same fields as Add New Client on Client Management page</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="client-name">Client Name *</Label>
+                          <Input
+                            id="client-name"
+                            placeholder="Enter client name"
+                            value={formData.name}
+                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="client-type">Business Type *</Label>
+                          <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}>
+                            <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                            <SelectContent>
+                              {outletTypes.map((t) => (
+                                <SelectItem key={t.id} value={String(t.name).toLowerCase()}>{String(t.name)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="contact-person">Contact Person *</Label>
+                          <Input
+                            id="contact-person"
+                            placeholder="Primary contact name"
+                            value={formData.contactPerson}
+                            onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="client-email">Email *</Label>
+                          <Input
+                            id="client-email"
+                            type="email"
+                            placeholder="Contact email"
+                            value={formData.email}
+                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="client-phone">Phone *</Label>
+                          <Input
+                            id="client-phone"
+                            placeholder="Phone number"
+                            value={formData.phone}
+                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="client-address">Address *</Label>
+                          <Input
+                            id="client-address"
+                            placeholder="Business address"
+                            value={formData.address}
+                            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="contract-start">Contract Start *</Label>
+                          <Input
+                            id="contract-start"
+                            type="date"
+                            value={formData.contractStart}
+                            onChange={(e) => setFormData({ ...formData, contractStart: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="contract-end">Contract End *</Label>
+                          <Input
+                            id="contract-end"
+                            type="date"
+                            value={formData.contractEnd}
+                            onChange={(e) => setFormData({ ...formData, contractEnd: e.target.value })}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="client-status">Status *</Label>
+                          <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="trial">Trial</SelectItem>
+                              <SelectItem value="renewal-pending">Renewal Pending</SelectItem>
+                              <SelectItem value="expired">Expired</SelectItem>
+                              <SelectItem value="paused">Paused</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="contract-value">Contract Value</Label>
+                          <Input
+                            id="contract-value"
+                            type="number"
+                            placeholder="Annual value"
+                            value={formData.contractValue}
+                            onChange={(e) => setFormData({ ...formData, contractValue: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label htmlFor="services">Services (comma-separated)</Label>
+                        <Input
+                          id="services"
+                          placeholder="Staff Management, Training"
+                          value={formData.services}
+                          onChange={(e) => setFormData({ ...formData, services: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="client-notes">Notes</Label>
+                        <Textarea
+                          id="client-notes"
+                          placeholder="Additional notes"
+                          rows={2}
+                          value={formData.notes}
+                          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
 
-              {/* Contract File Upload */}
-              <Card>
+                  {/* Contract File Upload */}
+                  <Card>
                 <CardHeader>
                   <CardTitle>Contract File</CardTitle>
                   <CardDescription>Upload contract document (PDF or Word)</CardDescription>
@@ -398,23 +529,29 @@ export default function AddOutletClientPage() {
                   </div>
                 </CardContent>
               </Card>
+                </>
+              )}
 
-              {/* Add Outlet Toggle */}
+              {/* Outlet: either only (when clientId) or optional (when adding client) */}
+              {(isOutletOnlyMode || addOutlet) && (
               <Card>
                 <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="add-outlet"
-                      checked={addOutlet}
-                      onCheckedChange={setAddOutlet}
-                    />
-                    <Label htmlFor="add-outlet" className="cursor-pointer font-semibold">
-                      Also add an outlet for this client
-                    </Label>
-                  </div>
+                  {isOutletOnlyMode ? (
+                    <CardTitle>Outlet details</CardTitle>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="add-outlet"
+                        checked={addOutlet}
+                        onCheckedChange={setAddOutlet}
+                      />
+                      <Label htmlFor="add-outlet" className="cursor-pointer font-semibold">
+                        Also add an outlet for this client
+                      </Label>
+                    </div>
+                  )}
                 </CardHeader>
-                {addOutlet && (
-                  <CardContent className="space-y-4 pt-4">
+                <CardContent className={isOutletOnlyMode ? "space-y-4 pt-4" : "space-y-4 pt-4"}>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="outlet-name">Outlet Name *</Label>
@@ -433,9 +570,9 @@ export default function AddOutletClientPage() {
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="hotel">Hotel</SelectItem>
-                            <SelectItem value="restaurant">Restaurant</SelectItem>
-                            <SelectItem value="bar">Bar</SelectItem>
+                            {outletTypes.map((t) => (
+                              <SelectItem key={t.id} value={String(t.name).toLowerCase()}>{String(t.name)}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -445,7 +582,7 @@ export default function AddOutletClientPage() {
                         <Label htmlFor="outlet-area">Area / Location</Label>
                         <Select value={formData.outletArea} onValueChange={(value) => setFormData({ ...formData, outletArea: value })}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select area" />
+                            <SelectValue placeholder="Select area (from API)" />
                           </SelectTrigger>
                           <SelectContent>
                             {areas.map((a) => (
@@ -526,9 +663,9 @@ export default function AddOutletClientPage() {
                         )}
                       </div>
                     </div>
-                  </CardContent>
-                )}
+                </CardContent>
               </Card>
+              )}
 
               {/* Submit Button */}
               <div className="flex justify-end gap-4">

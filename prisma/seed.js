@@ -32,11 +32,18 @@ const prisma = new PrismaClient({ adapter, log: ["error", "warn"] })
 
 const SALT_ROUNDS = 10
 
-// Test accounts for login at /login
+// Test accounts for login at /login (vendor = AdminUser with role "vendor"; HR created separately under vendor)
 const TEST_ACCOUNTS = [
-  { email: "tx@master.iam", password: "sekit", name: "Super Admin", role: "super_admin" },
+  { email: "tx@admin.com", password: "Admin@123", name: "Super Admin", role: "super_admin" },
+  { email: "tx@vendor.com", password: "Vendor@123", name: "Test Vendor", role: "vendor" },
   { email: "admin@test.com", password: "test123", name: "Test Admin", role: "vendor" },
-  { email: "vendor@test.com", password: "test123", name: "Test Vendor", role: "vendor" },
+  { email: "vendor@test.com", password: "test123", name: "Test Vendor 2", role: "vendor" },
+]
+
+// HR users (created under first vendor: tx@vendor.com). Login uses vendor login; "View as HR" in app.
+const TEST_HR_ACCOUNTS = [
+  { email: "hr1@tx.com", name: "HR One", phone: "9876543210" },
+  { email: "hr2@tx.com", name: "HR Two", phone: "9876543211" },
 ]
 
 const BANGALORE_OUTLETS = [
@@ -79,6 +86,37 @@ async function main() {
   } catch (e) {
     if (e.code === "P2021" || (e.meta && e.meta.driverAdapterError)) {
       console.warn("admin_users table missing? Run: npx prisma migrate deploy. Skipping test accounts.")
+    } else throw e
+  }
+
+  // Create HR under the test vendor (tx@vendor.com) so you can "View as HR" in the app
+  try {
+    const vendor = await prisma.adminUser.findUnique({
+      where: { email: "tx@vendor.com" },
+    })
+    if (vendor) {
+      for (const hr of TEST_HR_ACCOUNTS) {
+        const existing = await prisma.hr.findFirst({
+          where: { vendorId: vendor.id, email: hr.email },
+        })
+        if (!existing) {
+          await prisma.hr.create({
+            data: {
+              vendorId: vendor.id,
+              name: hr.name,
+              email: hr.email,
+              phone: hr.phone || "",
+            },
+          })
+          console.log("Created HR:", hr.email, "under vendor tx@vendor.com")
+        } else {
+          console.log("HR exists:", hr.email)
+        }
+      }
+    }
+  } catch (e) {
+    if (e.code === "P2021" || (e.meta && e.meta.driverAdapterError)) {
+      console.warn("hr table missing? Skipping HR seed.")
     } else throw e
   }
 

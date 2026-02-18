@@ -73,7 +73,7 @@ const initialAddForm = {
   phone: "",
   position: "",
   experience: "",
-  location: [], // multi-select; stored as array, sent as comma-separated
+  location: "", // single select; one location per candidate
   salary: "",
   skills: "",
   education: "",
@@ -108,6 +108,7 @@ export default function ViewApplicantsPage() {
   const [scheduleCandidate, setScheduleCandidate] = useState(null)
   const [scheduleSlots, setScheduleSlots] = useState([{ outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false)
+  const [samePositionOutlets, setSamePositionOutlets] = useState([]) // outlets with same position opening (for "tag to more")
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyCandidate, setHistoryCandidate] = useState(null)
   const [historySchedules, setHistorySchedules] = useState([])
@@ -120,7 +121,7 @@ export default function ViewApplicantsPage() {
   const [deleteCandidate, setDeleteCandidate] = useState(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editCandidate, setEditCandidate] = useState(null)
-  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: [], salary: "", attachments: [] })
+  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", position: "", status: "", location: "", salary: "", attachments: [] })
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [replaceWithChecked, setReplaceWithChecked] = useState(false)
   const [replacementForm, setReplacementForm] = useState({
@@ -508,6 +509,22 @@ export default function ViewApplicantsPage() {
     return () => clearTimeout(t)
   }, [page, limit, searchQuery, positionFilter, isActiveFilter, filterLocation, filterPhone, filterResumeNotUpdated6, appliedDateFrom, appliedDateTo, updatedAtFrom, updatedAtTo, filterOutlet])
 
+  useEffect(() => {
+    if (!scheduleModalOpen || !scheduleCandidate?.position) {
+      setSamePositionOutlets([])
+      return
+    }
+    const pos = String(scheduleCandidate.position).trim()
+    if (!pos) {
+      setSamePositionOutlets([])
+      return
+    }
+    fetch(`/api/outlets?position=${encodeURIComponent(pos)}&limit=200`)
+      .then((res) => (res.ok ? res.json() : { data: [] }))
+      .then((json) => setSamePositionOutlets(Array.isArray(json) ? json : (json.data ?? [])))
+      .catch(() => setSamePositionOutlets([]))
+  }, [scheduleModalOpen, scheduleCandidate?.position])
+
   const fetchCandidates = async () => {
     try {
       setLoading(true)
@@ -667,6 +684,10 @@ export default function ViewApplicantsPage() {
     setScheduleSlots((prev) => [...prev, { outletId: "", scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
   }
 
+  const addScheduleSlotForOutlet = (outletId) => {
+    setScheduleSlots((prev) => [...prev, { outletId: String(outletId), scheduledAt: "", type: "In-person", status: "standby-cv", remarks: "" }])
+  }
+
   const removeScheduleSlot = (index) => {
     setScheduleSlots((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
   }
@@ -742,10 +763,25 @@ export default function ViewApplicantsPage() {
     setInactiveModalOpen(true)
   }
 
+  const syncLocationAndPositionToDataManagement = (location, position) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+    if (!token) return
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    if (location && String(location).trim()) {
+      fetch("/api/vendor/locations", { method: "POST", headers, body: JSON.stringify({ value: String(location).trim() }) }).catch(() => {})
+    }
+    if (position && String(position).trim()) {
+      fetch("/api/vendor/positions", { method: "POST", headers, body: JSON.stringify({ name: String(position).trim() }) }).catch(() => {})
+    }
+  }
 
   const handleEditSubmit = async (e) => {
     e.preventDefault()
     if (!editCandidate) return
+    if (replaceWithChecked && (!replacementForm.exitDate || !replacementForm.dateOfJoining || !replacementForm.outletId || !replacementForm.position || !replacementForm.replacementCandidateId)) {
+      toast.error("When replacing: select replacement candidate, outlet, position, date of joining, and exit date (this candidate).")
+      return
+    }
     setEditSubmitting(true)
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
     try {
@@ -782,6 +818,7 @@ export default function ViewApplicantsPage() {
       setEditCandidate(null)
       setReplaceWithChecked(false)
       setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
+      syncLocationAndPositionToDataManagement(payload.location, payload.position)
       fetchCandidates()
     } catch (err) {
       toast.error(err.message || "Failed to update")
@@ -865,9 +902,8 @@ export default function ViewApplicantsPage() {
       toast.error("Position is required")
       return
     }
-    const locArr = Array.isArray(addFormData.location) ? addFormData.location : (addFormData.location ? [addFormData.location] : [])
-    if (locArr.length === 0) {
-      toast.error("At least one location is required")
+    if (!addFormData.location || !String(addFormData.location).trim()) {
+      toast.error("Location is required")
       return
     }
     const files = addFormData.attachmentFiles || []
@@ -893,7 +929,7 @@ export default function ViewApplicantsPage() {
         setUploadProgress(null)
       }
       const hasResumeFile = addFormData.resume && typeof addFormData.resume === "object" && addFormData.resume.name
-      const locationStr = Array.isArray(addFormData.location) ? addFormData.location.filter(Boolean).join(", ") : (addFormData.location || "")
+      const locationStr = String(addFormData.location || "").trim()
       const payloadPhone = phoneDigits
       let response
       if (hasResumeFile && attachments.length === 0) {
@@ -927,6 +963,7 @@ export default function ViewApplicantsPage() {
       }
       const created = await response.json()
       toast.success("Candidate added successfully")
+      syncLocationAndPositionToDataManagement(locationStr, addFormData.position)
       setAddFormData(initialAddForm)
       setAddModalOpen(false)
       setAddPhoneError("")
@@ -1042,11 +1079,7 @@ export default function ViewApplicantsPage() {
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-between font-normal min-h-10 flex-wrap h-auto py-2 gap-1">
                         <span className="truncate text-left">
-                          {(Array.isArray(addFormData.location) ? addFormData.location : []).length === 0
-                            ? "Select locations..."
-                            : (Array.isArray(addFormData.location) ? addFormData.location : []).length === 1
-                              ? (Array.isArray(addFormData.location) ? addFormData.location : [])[0]
-                              : `${(Array.isArray(addFormData.location) ? addFormData.location : []).length} locations`}
+                          {addFormData.location ? String(addFormData.location) : "Select location..."}
                         </span>
                         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -1067,21 +1100,18 @@ export default function ViewApplicantsPage() {
                                   if (r.ok) fetch("/api/outlets/locations").then((res) => (res.ok ? res.json() : [])).then(setLocationOptions)
                                 } catch (_) {}
                               }
-                              setAddFormData((prev) => ({ ...prev, location: [...(Array.isArray(prev.location) ? prev.location : []), val], locationSearchInput: "" }))
+                              setAddFormData((prev) => ({ ...prev, location: val, locationSearchInput: "" }))
                             }}
                           >
                             <Plus className="h-4 w-4 shrink-0" /> Add &quot;{(addFormData.locationSearchInput ?? "").trim()}&quot;
                           </button>
                         )}
-                        {locationOptions.filter((loc) => !(addFormData.locationSearchInput ?? "").trim() || loc.toLowerCase().includes((addFormData.locationSearchInput ?? "").toLowerCase())).map((loc) => {
-                          const sel = Array.isArray(addFormData.location) ? addFormData.location : []
-                          return (
-                            <label key={loc} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent">
-                              <Checkbox checked={sel.includes(loc)} onCheckedChange={(c) => setAddFormData((prev) => ({ ...prev, location: c ? [...(Array.isArray(prev.location) ? prev.location : []), loc] : (Array.isArray(prev.location) ? prev.location : []).filter((l) => l !== loc) }))} />
-                              <span className="truncate">{loc}</span>
-                            </label>
-                          )
-                        })}
+                        {locationOptions.filter((loc) => !(addFormData.locationSearchInput ?? "").trim() || loc.toLowerCase().includes((addFormData.locationSearchInput ?? "").toLowerCase())).map((loc) => (
+                          <label key={loc} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent">
+                            <Checkbox checked={addFormData.location === loc} onCheckedChange={(c) => setAddFormData((prev) => ({ ...prev, location: c ? loc : "" }))} />
+                            <span className="truncate">{loc}</span>
+                          </label>
+                        ))}
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -1263,6 +1293,37 @@ export default function ViewApplicantsPage() {
               <Button type="button" variant="outline" size="sm" onClick={addScheduleSlot} className="w-full">
                 <Plus className="w-4 h-4 mr-2" /> Add another slot
               </Button>
+              {scheduleCandidate?.position && (() => {
+                const outletsToShow = samePositionOutlets.length > 0 ? samePositionOutlets : outlets
+                const available = outletsToShow.filter((o) => !scheduleSlots.some((s) => s.outletId === String(o.id)))
+                if (available.length === 0) return null
+                return (
+                  <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
+                    <p className="text-sm font-medium">
+                      {samePositionOutlets.length > 0
+                        ? `Tag to more outlets (same position: ${scheduleCandidate.position})`
+                        : `Other outlets (add slot for position: ${scheduleCandidate.position})`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {samePositionOutlets.length > 0 ? "Add a slot for any outlet that has this position opening." : "Add a slot for another outlet."}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {available.map((o) => (
+                        <Button
+                          key={o.id}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => addScheduleSlotForOutlet(o.id)}
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1.5" />
+                          {o.name}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setScheduleModalOpen(false)}>Cancel</Button>
                 <Button type="submit" disabled={scheduleSubmitting}>
@@ -1309,6 +1370,11 @@ export default function ViewApplicantsPage() {
           }}
         />
 
+        <CandidateViewDetailsModal
+          open={viewDetailsOpen}
+          onOpenChange={(open) => { setViewDetailsOpen(open); if (!open) setViewDetailsCandidate(null) }}
+          candidate={viewDetailsCandidate}
+        />
 
         <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -1355,11 +1421,7 @@ export default function ViewApplicantsPage() {
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-between font-normal min-h-10 flex-wrap h-auto py-2 gap-1">
                         <span className="truncate text-left">
-                          {(Array.isArray(editForm.location) ? editForm.location : []).length === 0
-                            ? "Select locations..."
-                            : (Array.isArray(editForm.location) ? editForm.location : []).length === 1
-                              ? (Array.isArray(editForm.location) ? editForm.location : [])[0]
-                              : `${(Array.isArray(editForm.location) ? editForm.location : []).length} locations`}
+                          {editForm.location ? String(editForm.location) : "Select location..."}
                         </span>
                         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -1380,21 +1442,18 @@ export default function ViewApplicantsPage() {
                                   if (r.ok) fetch("/api/outlets/locations").then((res) => (res.ok ? res.json() : [])).then(setLocationOptions)
                                 } catch (_) {}
                               }
-                              setEditForm((prev) => ({ ...prev, location: [...(Array.isArray(prev.location) ? prev.location : []), val], locationSearchInput: "" }))
+                              setEditForm((prev) => ({ ...prev, location: val, locationSearchInput: "" }))
                             }}
                           >
                             <Plus className="h-4 w-4 shrink-0" /> Add &quot;{(editForm.locationSearchInput ?? "").trim()}&quot;
                           </button>
                         )}
-                        {locationOptions.filter((loc) => !(editForm.locationSearchInput ?? "").trim() || loc.toLowerCase().includes((editForm.locationSearchInput ?? "").toLowerCase())).map((loc) => {
-                          const sel = Array.isArray(editForm.location) ? editForm.location : []
-                          return (
-                            <label key={loc} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent">
-                              <Checkbox checked={sel.includes(loc)} onCheckedChange={(c) => setEditForm((prev) => ({ ...prev, location: c ? [...(Array.isArray(prev.location) ? prev.location : []), loc] : (Array.isArray(prev.location) ? prev.location : []).filter((l) => l !== loc) }))} />
-                              <span className="truncate">{loc}</span>
-                            </label>
-                          )
-                        })}
+                        {locationOptions.filter((loc) => !(editForm.locationSearchInput ?? "").trim() || loc.toLowerCase().includes((editForm.locationSearchInput ?? "").toLowerCase())).map((loc) => (
+                          <label key={loc} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent">
+                            <Checkbox checked={editForm.location === loc} onCheckedChange={(c) => setEditForm((prev) => ({ ...prev, location: c ? loc : "" }))} />
+                            <span className="truncate">{loc}</span>
+                          </label>
+                        ))}
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -1455,33 +1514,40 @@ export default function ViewApplicantsPage() {
                         <Label>Outlet</Label>
                         <Select value={replacementForm.outletId ? String(replacementForm.outletId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, outletId: v }))}>
                           <SelectTrigger><SelectValue placeholder="Select outlet" /></SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="z-[100]">
                             {outlets.map((o) => (<SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div>
                         <Label>Position (at outlet)</Label>
-                        <Input value={replacementForm.position} onChange={(e) => setReplacementForm((prev) => ({ ...prev, position: e.target.value }))} placeholder="e.g. sous-chef" />
+                        <Select value={replacementForm.position || ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, position: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
+                          <SelectContent className="z-[100]">
+                            {[...new Set([...(editCandidate?.position ? [editCandidate.position] : []), ...(positionOptions || [])])].filter(Boolean).map((pos) => (
+                              <SelectItem key={pos} value={String(pos)}>{pos}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label>Replaced candidate HR (who was handling this candidate)</Label>
-                        <Select value={replacementForm.replacedHrId ? String(replacementForm.replacedHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacedHrId: v }))}>
+                        <Select value={replacementForm.replacedHrId ? String(replacementForm.replacedHrId) : "__none__"} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacedHrId: v === "__none__" ? "" : v }))}>
                           <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">— None —</SelectItem>
+                            <SelectItem value="__none__">— None —</SelectItem>
                             {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div>
                         <Label>Replacement candidate HR</Label>
-                        <Select value={replacementForm.replacementHrId ? String(replacementForm.replacementHrId) : ""} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacementHrId: v }))}>
+                        <Select value={replacementForm.replacementHrId ? String(replacementForm.replacementHrId) : "__none__"} onValueChange={(v) => setReplacementForm((prev) => ({ ...prev, replacementHrId: v === "__none__" ? "" : v }))}>
                           <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">— None —</SelectItem>
+                            <SelectItem value="__none__">— None —</SelectItem>
                             {hrList.map((h) => (<SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>))}
                           </SelectContent>
                         </Select>
@@ -1493,8 +1559,8 @@ export default function ViewApplicantsPage() {
                         <Input type="date" value={replacementForm.dateOfJoining} onChange={(e) => setReplacementForm((prev) => ({ ...prev, dateOfJoining: e.target.value }))} />
                       </div>
                       <div>
-                        <Label>Exit date (this candidate)</Label>
-                        <Input type="date" value={replacementForm.exitDate} onChange={(e) => setReplacementForm((prev) => ({ ...prev, exitDate: e.target.value }))} />
+                        <Label>Exit date (this candidate) *</Label>
+                        <Input type="date" value={replacementForm.exitDate} onChange={(e) => setReplacementForm((prev) => ({ ...prev, exitDate: e.target.value }))} required={replaceWithChecked} />
                       </div>
                     </div>
                     <div>
@@ -1830,7 +1896,7 @@ export default function ViewApplicantsPage() {
                           sessionUser={sessionUser}
                           onViewDetails={() => { setViewDetailsCandidate(candidate); setViewDetailsOpen(true) }}
                           onShareInfo={() => openShareInfo(candidate)}
-                          onEdit={() => { setEditCandidate(candidate); setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] }); setReplaceWithChecked(false); setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" }); setEditModalOpen(true) }}
+                          onEdit={() => { setEditCandidate(candidate); const loc = candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean)[0] || "" : ""; setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: loc, salary: candidate.salary || "", attachments: candidate.attachments || [] }); setReplaceWithChecked(false); setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: candidate.position || "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" }); setEditModalOpen(true) }}
                           onScheduleInterview={() => openScheduleModal(candidate)}
                           onHistory={() => openHistoryModal(candidate)}
                           onActivateCvLink={() => handleActivateCvLink(candidate)}
@@ -1986,9 +2052,10 @@ export default function ViewApplicantsPage() {
                           onShareInfo={() => openShareInfo(candidate)}
                           onEdit={() => {
                             setEditCandidate(candidate)
-                            setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean) : [], salary: candidate.salary || "", attachments: candidate.attachments || [] })
+                            const loc = candidate.location ? candidate.location.split(",").map((s) => s.trim()).filter(Boolean)[0] || "" : "";
+                            setEditForm({ name: candidate.name, phone: candidate.phone, email: candidate.email || "", position: candidate.position, status: candidate.status, location: loc, salary: candidate.salary || "", attachments: candidate.attachments || [] })
                             setReplaceWithChecked(false)
-                            setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
+                            setReplacementForm({ replacementCandidateId: "", replacementCandidateName: "", outletId: "", position: candidate.position || "", replacedHrId: "", replacementHrId: "", dateOfJoining: "", exitDate: "", salary: "" })
                             setEditModalOpen(true)
                           }}
                           onScheduleInterview={() => openScheduleModal(candidate)}

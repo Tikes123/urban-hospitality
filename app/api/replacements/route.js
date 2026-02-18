@@ -98,7 +98,16 @@ export async function POST(request) {
       return NextResponse.json({ error: "Replaced and replacement candidate must be different" }, { status: 400 })
     }
 
-    const replacement = await prisma.candidateReplacement.create({
+    const candidateReplacementDelegate = prisma.candidateReplacement ?? prisma.CandidateReplacement
+    if (!candidateReplacementDelegate) {
+      console.error("Prisma client missing candidateReplacement delegate. Run: npx prisma generate and restart the server.")
+      return NextResponse.json(
+        { error: "Server configuration error. Please run: npx prisma generate and restart the dev server." },
+        { status: 500 }
+      )
+    }
+
+    const replacement = await candidateReplacementDelegate.create({
       data: {
         replacedCandidateId: replacedId,
         replacementCandidateId: replacementId,

@@ -33,6 +33,7 @@ const FALLBACK_NAV = [
   { menuKey: "cv-links", href: "/vendor/cv-links", label: "Active CV Links" },
   { menuKey: "client", href: "/vendor/client", label: "Client" },
   { menuKey: "manage-hr", href: "/vendor/manage-hr", label: "Manage HR" },
+  { menuKey: "incentives", href: "/vendor/incentives", label: "HR Incentives" },
 ]
 
 const FALLBACK_DROPDOWN = [

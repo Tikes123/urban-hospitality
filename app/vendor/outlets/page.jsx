@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -33,6 +34,8 @@ function authHeaders() {
 
 export default function OutletsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const clientIdFromUrl = searchParams.get("clientId")
   const [outlets, setOutlets] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -78,7 +81,7 @@ export default function OutletsPage() {
     fetchPermissions()
     fetchSessionUser()
     fetchCvLinks()
-  }, [])
+  }, [clientIdFromUrl])
 
   const fetchPermissions = async () => {
     try {
@@ -414,7 +417,8 @@ export default function OutletsPage() {
   const fetchOutlets = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/outlets`)
+      const url = clientIdFromUrl ? `/api/outlets?clientId=${clientIdFromUrl}` : "/api/outlets"
+      const response = await fetch(url)
       if (!response.ok) throw new Error("Failed to fetch outlets")
       const json = await response.json()
       setOutlets(json.data ?? [])
@@ -431,7 +435,12 @@ export default function OutletsPage() {
       <VendorHeader user={null} />
       <main className="p-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Outlets Management</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Outlets Management</h1>
+            {clientIdFromUrl && (
+              <p className="text-sm text-muted-foreground mt-1">Showing outlets for this client. <Link href="/vendor/client" className="text-green-600 hover:underline">Back to clients</Link></p>
+            )}
+          </div>
         </div>
 
         {/* Outlet Selector */}
